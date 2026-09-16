@@ -51,6 +51,43 @@ inputs <- c(
               n     = NULL))
 )
 
+# LD-aware instrument strength from marginal summary statistics.
+joint_F_R2 <- function(beta, se, LD_inv, n = NULL) {
+    z <- beta / se
+    k <- length(z)
+    chi2 <- as.numeric(t(z) %*% LD_inv %*% z)
+
+    out <- list(
+        z = z,
+        chi2 = chi2,
+        F_joint = chi2 / k,
+        F_mean = mean(z^2),
+        F_min = min(z^2),
+        F_per_snp = z^2
+    )
+
+    if (is.null(n)) {
+        out$R2_joint <- out$R2_rho <- out$R2_adj <- NA_real_
+        out$R2_per_snp <- rep(NA_real_, k)
+        return(out)
+    }
+
+    # Primary: invert the first-stage F relation. Bounded in [0,1] by
+    # construction and the most conservative of the three.
+    out$R2_joint <- out$F_joint / (out$F_joint + (n - k - 1) / k)
+
+    # Marginal correlations combined through the LD matrix; identical in exact
+    # arithmetic, reported so the agreement is visible.
+    rho <- sign(z) * sqrt(z^2 / (z^2 + n - 2))
+    out$R2_rho <- as.numeric(t(rho) %*% LD_inv %*% rho)
+
+    # Adjusted for the K degrees of freedom spent (E[chi2] = K under the null).
+    out$R2_adj <- (chi2 - k) / (chi2 - k + n - k - 1)
+
+    out$R2_per_snp <- z^2 / (z^2 + n - 2)
+    out
+}
+
 strength <- lapply(inputs, function(x) {
     c(list(label = x$label, n = if (is.null(x$n)) NA_real_ else x$n),
       joint_F_R2(x$beta, x$se, ld_inv, x$n))
