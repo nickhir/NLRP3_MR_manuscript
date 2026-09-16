@@ -251,13 +251,10 @@ message(
 clumped <- list()
 for (tn in names(summary_stats)) {
     cl <- ld_clump_local(
-        dat = summary_stats[[tn]],
-        clump_kb = CLUMP_KB,
-        clump_r2 = R2_THRESHOLD,
-        clump_p = CLUMP_P,
+        variants = summary_stats[[tn]],
         bfile = ld_reference,
-        plink_bin = plink2_bin,
-        verbose = FALSE
+        r2 = R2_THRESHOLD,
+        kb = CLUMP_KB
     )
     clumped[[tn]] <- cl$ID
     message(sprintf("  %-7s -> %d lead SNP(s)", tn, length(cl$ID)))
@@ -280,9 +277,8 @@ friends <- lapply(names(clumped), function(tn) {
     res <- get_high_ld_snps(
         lead,
         reference = ld_reference,
-        ld_threshold = HIGH_LD_THRESHOLD,
-        window_kb = HIGH_LD_WINDOW_KB,
-        verbose = FALSE
+        r2 = HIGH_LD_THRESHOLD,
+        kb = HIGH_LD_WINDOW_KB
     ) %>%
         select(ID_A, ID_B, UNPHASED_R2)
     # a lead is always its own friend, which plink2 does not report
@@ -386,9 +382,8 @@ if (length(need_proxy) > 0) {
     hl <- get_high_ld_snps(
         need_proxy,
         reference = ld_reference,
-        ld_threshold = PROXY_R2,
-        window_kb = PROXY_WINDOW_KB,
-        verbose = FALSE
+        r2 = PROXY_R2,
+        kb = PROXY_WINDOW_KB
     )
     if (nrow(hl) > 0) {
         reps <- lapply(unique(hl$ID_A), function(s) {

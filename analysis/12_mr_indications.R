@@ -157,6 +157,45 @@ resolve_proxies <- function(std, proxies, label) {
 }
 
 
+## ----helper_report_missing------------------------------------------------------
+# Say plainly which instruments a study is missing and why, rather than letting
+# them vanish into an NA.
+report_missing <- function(harmonised, label) {
+    absent <- harmonised |> dplyr::filter(is.na(beta_raw))
+    mismatch <- harmonised |>
+        dplyr::filter(!is.na(beta_raw) & is.na(beta_outcome))
+    palin <- harmonised |> dplyr::filter(!is.na(beta_outcome) & palindromic)
+
+    if (nrow(absent) > 0) {
+        warning(sprintf(
+            "[%s] %d/8 instruments absent from the file: %s",
+            label,
+            nrow(absent),
+            paste(absent$SNP, collapse = ", ")
+        ))
+    }
+    if (nrow(mismatch) > 0) {
+        warning(sprintf(
+            "[%s] %d/8 instruments present but alleles do not match: %s",
+            label,
+            nrow(mismatch),
+            paste(mismatch$SNP, collapse = ", ")
+        ))
+    }
+    if (nrow(palin) > 0) {
+        message(sprintf(
+            "  note: %d palindromic instrument(s) matched on allele identity only: %s",
+            nrow(palin),
+            paste(palin$SNP, collapse = ", ")
+        ))
+    }
+    message(sprintf(
+        "  -> %d/8 instruments usable",
+        sum(!is.na(harmonised$beta_outcome))
+    ))
+}
+
+
 ## ----helper_prepare_outcome---------------------------------------------------
 prepare_outcome <- function(
     label,

@@ -115,18 +115,16 @@ availability <- function(snp) sum(vapply(summary_stats,
 ## ---- selection, parameterised on the clumping threshold -------------------------
 select_instruments <- function(clump_r2) {
     clumped <- lapply(names(summary_stats), function(tn)
-        ld_clump_local(dat = summary_stats[[tn]], clump_kb = CLUMP_KB,
-                       clump_r2 = clump_r2, clump_p = CLUMP_P,
-                       bfile = ld_reference, plink_bin = plink2_bin,
-                       verbose = FALSE)$ID)
+        ld_clump_local(variants = summary_stats[[tn]], bfile = ld_reference,
+                       r2 = clump_r2, kb = CLUMP_KB)$ID)
     names(clumped) <- names(summary_stats)
 
     friends <- lapply(names(clumped), function(tn) {
         lead <- clumped[[tn]]
         if (length(lead) == 0) return(NULL)
         res <- get_high_ld_snps(lead, reference = ld_reference,
-                                ld_threshold = HIGH_LD_THRESHOLD,
-                                window_kb = HIGH_LD_WINDOW_KB, verbose = FALSE) %>%
+                                r2 = HIGH_LD_THRESHOLD,
+                                kb = HIGH_LD_WINDOW_KB) %>%
             select(ID_A, ID_B, UNPHASED_R2)
         rbind(res, data.frame(ID_A = lead, ID_B = lead, UNPHASED_R2 = 1))
     })
@@ -174,8 +172,7 @@ select_instruments <- function(clump_r2) {
     need_proxy <- instruments[vapply(instruments, availability, 1L) != 4]
     if (length(need_proxy) > 0) {
         hl <- get_high_ld_snps(need_proxy, reference = ld_reference,
-                               ld_threshold = PROXY_R2, window_kb = PROXY_WINDOW_KB,
-                               verbose = FALSE)
+                               r2 = PROXY_R2, kb = PROXY_WINDOW_KB)
         if (nrow(hl) > 0) {
             reps <- lapply(unique(hl$ID_A), function(s) {
                 cand <- hl %>% filter(ID_A == s)

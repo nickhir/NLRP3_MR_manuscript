@@ -20,6 +20,29 @@ GRID_TRAIT <- "SBP"  # whose variant set defines the grid
 
 
 ## ---- 1. the grid ------------------------------------------------------------------
+# One variant per `bin_bp` window, genome-wide.
+thin_genome <- function(cfg, bin_bp = 100000L) {
+    header <- header_of(cfg$file)
+    ci <- col_index(header, cfg$chr_col, cfg$file)
+    pi <- col_index(header, cfg$pos_col, cfg$file)
+
+    df <- data.table::fread(
+        cmd = sprintf(
+            "%s | awk -F'\\t' 'NR==1{print; next} {c=$%d; sub(/^chr/,\"\",c); k=c\"_\"int($%d/%d); if(!(k in seen)){seen[k]=1; print}}'",
+            reader_cmd(cfg$file),
+            ci,
+            pi,
+            bin_bp
+        ),
+        data.table = FALSE,
+        showProgress = FALSE
+    )
+    if (ncol(df) == length(header)) {
+        names(df) <- header
+    }
+    to_common(df, cfg)
+}
+
 message(sprintf("Building a 1-per-%d kb grid from %s ...",
                 GRID_BP / 1000L, MEDIATORS[[GRID_TRAIT]]$label))
 

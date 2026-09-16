@@ -76,6 +76,14 @@ per_snp_tbl <- lapply(inputs, function(x) {
 
 
 ## ---- effective sample size check --------------------------------------------------------
+# Effective sample size implied by the standard errors (the Genomic SEM
+# identity).
+effective_n <- function(se, eaf) {
+    stats::median(
+        1 / (2 * pmin(eaf, 1 - eaf) * (1 - pmin(eaf, 1 - eaf)) * se^2)
+    )
+}
+
 # Ntilde = 1/(2*MAF*(1-MAF)*SE^2) should track the stated N for a phenotype on
 # a unit-variance scale. It does for CRP, GlycA and neutrophils.
 eff_n <- lapply(names(READOUTS), function(k) {

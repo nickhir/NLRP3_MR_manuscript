@@ -16,6 +16,65 @@ source(here::here("helpers.R"))
 out_dir <- step_dir("07a_mediator_instruments")
 
 
+# Stream a file, keeping only variants below a p threshold. A file reporting
+# -log10(p) needs the comparison inverted.
+read_significant <- function(cfg) {
+    header <- header_of(cfg$file)
+    pi <- col_index(header, cfg$p_col, cfg$file)
+
+    cond <- if (isTRUE(cfg$neglog10_p)) {
+        sprintf(
+            "$%d != \"NA\" && $%d != \"\" && $%d+0 > %.10f",
+            pi,
+            pi,
+            pi,
+            -log10(MED_CLUMP_P)
+        )
+    } else {
+        sprintf(
+            "$%d != \"NA\" && $%d != \"\" && ($%d+0 < %g || $%d+0 <= 0)",
+            pi,
+            pi,
+            pi,
+            MED_CLUMP_P,
+            pi
+        )
+    }
+
+    keep_chr <- unique(c(cfg$p_col, cfg$nlog10_col))
+    df <- data.table::fread(
+        cmd = sprintf(
+            "%s | awk -F'\\t' 'NR==1 || (%s)'",
+            reader_cmd(cfg$file),
+            cond
+        ),
+        data.table = FALSE,
+        showProgress = FALSE,
+        colClasses = stats::setNames(
+            rep("character", length(keep_chr)),
+            keep_chr
+        )
+    )
+    if (ncol(df) == length(header)) {
+        names(df) <- header
+    }
+    df
+}
+
+# plink2 --clump ranks on its P column and cannot break ties at P = 0, where
+# the 24 strongest ApoB variants all land.
+clump_key <- function(nlog10) {
+    bad <- !is.finite(nlog10)
+    if (any(bad)) {
+        stop(sprintf(
+            "clump_key(): %d variant(s) have no finite -log10(p). A file writing the literal \"0\" or \"0.0\" loses the magnitude entirely - declare nlog10_col for it in config.R, or the clump order at that locus would be arbitrary.",
+            sum(bad)
+        ))
+    }
+    r <- rank(-nlog10, ties.method = "first")
+    r / (length(r) + 1) * MED_CLUMP_P
+}
+
 
 ## ---- select instruments per mediator ---------------------------------------------
 instruments <- lapply(names(MEDIATORS), function(k) {
@@ -30,9 +89,8 @@ instruments <- lapply(names(MEDIATORS), function(k) {
     # panel does not carry cannot be clumped and are dropped.
     sig <- sig %>% arrange(desc(nlog10))
     clumped <- ld_clump_local(
-        dat = tibble(SNP = to_panel_id(sig$SNPid), p = clump_key(sig$nlog10)),
-        clump_kb = MED_CLUMP_KB, clump_r2 = MED_CLUMP_R2, clump_p = MED_CLUMP_P,
-        bfile = ld_panel, plink_bin = plink2_bin, verbose = FALSE
+        variants = tibble(SNP = to_panel_id(sig$SNPid), p = clump_key(sig$nlog10)),
+        bfile = ld_panel, r2 = MED_CLUMP_R2, kb = MED_CLUMP_KB
     )
 
     # plink2 writes "#CHROM POS ID P TOTAL ..."; the index variant is ID. Reading

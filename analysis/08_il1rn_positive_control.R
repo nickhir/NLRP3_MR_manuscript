@@ -53,6 +53,55 @@ N_NEUTRO   <- 519288L
 N_GLYCA    <- 434646L
 
 ## ----region-------------------------------------------------------------------
+get_gene_coordinates_hg38 <- function(gene_symbol) {
+    ah <- AnnotationHub()
+    hg38_annotations <- ah[["AH116291"]]
+
+    gene_coords_hg38 <- genes(hg38_annotations) %>%
+        as.data.frame() %>%
+        filter(symbol == gene_symbol) %>%
+        filter(grepl("ENSG", gene_id))
+
+    if (nrow(gene_coords_hg38) == 0) {
+        warning(paste("No coordinates found for gene symbol:", gene_symbol))
+        return(NULL)
+    }
+
+    # Filter for integer chromosomes only (exclude unusual chromosome names)
+    chr_levels <- as.character(gene_coords_hg38$seqnames)
+    integer_chr_indices <- which(grepl("^[0-9]+$", chr_levels))
+
+    if (length(integer_chr_indices) == 0) {
+        stop(paste(
+            "No integer chromosome coordinates found for gene symbol:",
+            gene_symbol,
+            ". Found chromosomes:",
+            paste(unique(chr_levels), collapse = ", ")
+        ))
+    }
+
+    # Filter data to only include integer chromosomes
+    gene_coords_filtered <- gene_coords_hg38[integer_chr_indices, ]
+
+    # Check if multiple chromosomes remain after filtering
+    unique_chr <- unique(gene_coords_filtered$seqnames)
+    if (length(unique_chr) > 1) {
+        stop(paste(
+            "Multiple integer chromosomes found for gene symbol:",
+            gene_symbol,
+            ". Chromosomes:",
+            paste(unique_chr, collapse = ", "),
+            ". Please check gene annotation."
+        ))
+    }
+
+    chr <- as.integer(as.character(unique_chr[1]))
+    start_hg38 <- gene_coords_filtered$start
+    stop_hg38 <- gene_coords_filtered$end
+
+    list(chromosome = chr, start = start_hg38, stop = stop_hg38)
+}
+
 coords <- get_gene_coordinates_hg38("IL1RN")
 GENE_START <- as.integer(coords$start)
 GENE_END   <- as.integer(coords$stop)
@@ -220,10 +269,8 @@ availability <- function(snp) sum(vapply(summary_stats,
 message("\nSTEP 1  LD clumping per trait (r2 < ", R2_THRESHOLD, ")")
 clumped <- list()
 for (tn in names(summary_stats)) {
-    cl <- ld_clump_local(dat = summary_stats[[tn]], clump_kb = CLUMP_KB,
-                         clump_r2 = R2_THRESHOLD, clump_p = CLUMP_P,
-                         bfile = ld_reference, plink_bin = plink2_bin,
-                         verbose = FALSE)
+    cl <- ld_clump_local(variants = summary_stats[[tn]], bfile = ld_reference,
+                         r2 = R2_THRESHOLD, kb = CLUMP_KB)
     clumped[[tn]] <- cl$ID
     message(sprintf("  %-7s -> %d lead SNP(s)", tn, length(cl$ID)))
 }
