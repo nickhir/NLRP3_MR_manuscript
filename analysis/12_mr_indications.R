@@ -57,55 +57,6 @@ exposure <- exposure %>%
 exposure_direction <- "1-unit DECREASE in cis-NLRP3 activity score"
 
 
-## ----helper_region------------------------------------------------------------
-read_nlrp3_region <- function(
-    path,
-    chr_col,
-    pos_col,
-    sep = "tab"
-) {
-    header <- header_of(path, sep)
-    ci <- col_index(header, chr_col, path)
-    pi <- col_index(header, pos_col, path)
-
-    # Whitespace-delimited inputs (the deCODE releases) are re-emitted with
-    # tab separators by awk, so fread always sees the same shape.
-    awk <- if (sep == "tab") {
-        sprintf(
-            "awk -F'\\t' 'NR==1 || (($%d==\"1\" || $%d==\"chr1\") && $%d>=%d && $%d<=%d)'",
-            ci,
-            ci,
-            pi,
-            INDICATION_REGION_START,
-            pi,
-            INDICATION_REGION_END
-        )
-    } else {
-        sprintf(
-            "awk 'BEGIN{OFS=\"\\t\"} NR==1 || (($%d==\"1\" || $%d==\"chr1\") && $%d>=%d && $%d<=%d) {$1=$1; print}'",
-            ci,
-            ci,
-            pi,
-            INDICATION_REGION_START,
-            pi,
-            INDICATION_REGION_END
-        )
-    }
-    df <- fread(
-        cmd = paste(reader_cmd(path), "|", awk),
-        data.table = FALSE,
-        showProgress = FALSE
-    )
-
-    # fread can mangle a leading '#' in the first column name; restore
-    # the true header so that lookups by name always work.
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
-    df
-}
-
-
 ## ----helper_proxies-----------------------------------------------------------
 resolve_proxies <- function(std, proxies, label) {
     lapply(seq_len(nrow(proxies)), function(i) {
@@ -222,42 +173,48 @@ prepare_outcome <- function(
 ) {
     message(sprintf("[%s] %s", label, basename(file)))
 
-    raw <- read_nlrp3_region(file, chr_col, pos_col, sep)
-    verify_build(raw, pos_col, build, label, exposure)
+    # read_region() takes a registry entry and hands back fixed column names
+    # (chrom, pos, ea, oa, beta, se, eaf, p, ci_lower, ci_upper). The OUTCOMES
+    # entry arrives here splatted across this wrapper's arguments, so it is
+    # reassembled for the call.
+    raw <- read_region(
+        list(
+            file = file,
+            chr_col = chr_col,
+            pos_col = pos_col,
+            ea_col = ea_col,
+            oa_col = oa_col,
+            effect_col = effect_col,
+            se_col = se_col,
+            ci_lower_col = ci_lower_col,
+            ci_upper_col = ci_upper_col,
+            eaf_col = eaf_col,
+            p_col = p_col,
+            sep = sep
+        ),
+        CHR,
+        INDICATION_REGION_START,
+        INDICATION_REGION_END
+    )
+    verify_build(raw, "pos", build, label, exposure)
 
     pos_key <- if (build == "GRCh38") "pos_hg38" else "pos_hg19"
 
     std <- raw %>%
         transmute(
-            join_pos = as.integer(.data[[pos_col]]),
-            outcome_ea = toupper(.data[[ea_col]]),
-            outcome_oa = toupper(.data[[oa_col]]),
-            effect_raw = as.numeric(.data[[effect_col]]),
-            se_column = if (se_source == "column") {
-                as.numeric(.data[[se_col]])
-            } else {
-                NA_real_
-            },
-            ci_lower = if (se_source == "ci") {
-                as.numeric(.data[[ci_lower_col]])
-            } else {
-                NA_real_
-            },
-            ci_upper = if (se_source == "ci") {
-                as.numeric(.data[[ci_upper_col]])
-            } else {
-                NA_real_
-            },
+            join_pos = as.integer(pos),
+            outcome_ea = toupper(ea),
+            outcome_oa = toupper(oa),
+            effect_raw = as.numeric(beta),
+            se_column = if (se_source == "column") as.numeric(se) else NA_real_,
+            ci_lower = if (se_source == "ci") as.numeric(ci_lower) else NA_real_,
+            ci_upper = if (se_source == "ci") as.numeric(ci_upper) else NA_real_,
             eaf_outcome = if (is.null(eaf_col)) {
                 NA_real_
             } else {
-                as.numeric(.data[[eaf_col]]) / eaf_scale
+                as.numeric(eaf) / eaf_scale
             },
-            p_outcome = if (is.null(p_col)) {
-                NA_real_
-            } else {
-                as.numeric(.data[[p_col]])
-            }
+            p_outcome = if (is.null(p_col)) NA_real_ else as.numeric(p)
         ) %>%
         mutate(
             beta_raw = if (effect_type == "OR") log(effect_raw) else effect_raw,

@@ -22,25 +22,19 @@ GRID_TRAIT <- "SBP"  # whose variant set defines the grid
 ## ---- 1. the grid ------------------------------------------------------------------
 # One variant per `bin_bp` window, genome-wide.
 thin_genome <- function(cfg, bin_bp = 100000L) {
-    header <- header_of(cfg$file)
-    ci <- col_index(header, cfg$chr_col, cfg$file)
-    pi <- col_index(header, cfg$pos_col, cfg$file)
-
-    df <- data.table::fread(
-        cmd = sprintf(
-            "%s | awk -F'\\t' 'NR==1{print; next} {c=$%d; sub(/^chr/,\"\",c); k=c\"_\"int($%d/%d); if(!(k in seen)){seen[k]=1; print}}'",
-            reader_cmd(cfg$file),
-            ci,
-            pi,
-            bin_bp
-        ),
-        data.table = FALSE,
-        showProgress = FALSE
-    )
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
-    to_common(df, cfg)
+    read_genome(cfg) %>%
+        mutate(row = row_number(), bin = floor(pos / bin_bp)) %>%
+        group_by(chrom, bin) %>%
+        # First row of each bin in file order wins, exactly as the streaming
+        # filter this replaced did with its `if (!(k in seen))`.
+        slice(1) %>%
+        ungroup() %>%
+        # slice() picks the right row but hands the groups back sorted by
+        # chrom then bin, so the grid would leave here in a different order
+        # from the one every earlier run used. Order is not free: it sets the
+        # sequence cor.test() sums in further down.
+        arrange(row) %>%
+        to_common(cfg)
 }
 
 message(sprintf("Building a 1-per-%d kb grid from %s ...",
@@ -56,7 +50,7 @@ z_at_grid <- lapply(names(MEDIATORS), function(k) {
     message(sprintf("  %s ...", cfg$label))
 
     d <- if (identical(k, GRID_TRAIT)) grid else
-        lookup_at(cfg, grid$SNPid, grid$chr, grid$pos, cfg$label)
+        lookup_at(cfg, grid %>% transmute(SNPid, chrom = chr, pos))
 
     message(sprintf("    %s / %s present", format(nrow(d), big.mark = ","),
                     format(nrow(grid), big.mark = ",")))

@@ -62,46 +62,6 @@ if (startsWith(tempdir(), "/tmp")) {
 
 ## ---- reading summary statistics ----------------------------------------------
 
-# Stream a file regardless of compression, for the readers that still pipe
-# through awk: lookup_at() below, and analysis/07a, 07b and 12. read_region()
-# no longer needs it.
-reader_cmd <- function(path) {
-    # .bgzip / .bgz are the Zoodsma metabolite releases: bgzip output, which is
-    # gzip-compatible, so zcat reads them. Without this they fall through to
-    # cat and R sees binary ("embedded nul", "invalid in this locale").
-    if (grepl("\\.(gz|bgz|bgzip)$", path)) {
-        return(sprintf("zcat %s", shQuote(path)))
-    }
-    if (grepl("\\.zip$", path)) {
-        return(sprintf("unzip -p %s", shQuote(path)))
-    }
-    sprintf("cat %s", shQuote(path))
-}
-
-header_of <- function(path, sep = "tab") {
-    con <- pipe(paste(reader_cmd(path), "| head -n 1"), open = "r")
-    on.exit(close(con))
-    line <- readLines(con, n = 1)
-    if (sep == "tab") {
-        strsplit(line, "\t", fixed = TRUE)[[1]]
-    } else {
-        strsplit(trimws(line), "[ \t]+")[[1]]
-    }
-}
-
-col_index <- function(header, name, path) {
-    idx <- match(name, header)
-    if (is.na(idx)) {
-        stop(sprintf(
-            "column '%s' not found in %s\navailable: %s",
-            name,
-            basename(path),
-            paste(header, collapse = ", ")
-        ))
-    }
-    idx
-}
-
 # Read one chromosome window out of a summary-statistics file, given its
 # registry entry from config.R. Column names are standardised on the way in -
 # chrom, pos, ea, oa, beta, se, eaf, p, plus rsid, n, gene, ci_lower and
@@ -139,10 +99,14 @@ read_region <- function(cfg, chr, start, end) {
         sep = if (identical(cfg$sep, "whitespace")) " " else "\t",
         select = unname(cols),
         # chrom as text: "1" and "chr1" both occur, and comparing as text works
-        # for either. pos as numeric: fread types columns from the whole file,
-        # not from the window, so one stray "." or "NA" position anywhere in a
-        # genome-wide file would otherwise make the window comparison below a
-        # string comparison. awk compared numerically; so must this.
+        # for either. pos as numeric so that the window comparison below is
+        # arithmetic rather than lexical ("9" >= "10" is TRUE as text; 9 >= 10
+        # is not). Note the limit of that pin: data.table's colClasses only
+        # UPGRADES a type, so it lifts an integer or an all-NA/blank position
+        # column to double, but a column whose values force character - a
+        # literal "." in a position field - is left as character and fread does
+        # not complain. No registry file has one; closing that hole would need
+        # na.strings, which would rewrite the allele columns too.
         colClasses = list(character = cfg$chr_col, numeric = cfg$pos_col),
         data.table = FALSE,
         showProgress = FALSE
@@ -170,6 +134,57 @@ read_region <- function(cfg, chr, start, end) {
 
     # The whole-file read is the largest object any step holds. Drop it here
     # rather than leaving it for the next iteration of a caller's loop.
+    rm(raw)
+    gc(verbose = FALSE, full = TRUE)
+    df
+}
+
+# Read a whole genome-wide file on the same standard names, for the three
+# mediation readers that select variants by something other than a window:
+# read_significant() (07a, a p threshold), thin_genome() (07b, one variant per
+# bin) and lookup_at() (below, an explicit variant list). Every one of them
+# feeds to_common(), so the column set is exactly what to_common() reads -
+# no rsid and no gene, because a genome-wide rsID column alone costs most of a
+# gigabyte and nothing downstream of these three looks at it.
+read_genome <- function(cfg) {
+    cols <- c(
+        chrom = cfg$chr_col,
+        pos = cfg$pos_col,
+        ea = cfg$ea_col,
+        oa = cfg$oa_col,
+        beta = cfg$effect_col,
+        se = cfg$se_col,
+        eaf = cfg$eaf_col,
+        p = cfg$p_col,
+        n = cfg$n_col,
+        nlog10 = cfg$nlog10_col,
+        ci_lower = cfg$ci_lower_col,
+        ci_upper = cfg$ci_upper_col
+    )
+
+    raw <- data.table::fread(
+        cfg$file,
+        sep = if (identical(cfg$sep, "whitespace")) " " else "\t",
+        select = unname(cols),
+        # chrom as text and pos as numeric for the same reasons as
+        # read_region(). p stays a STRING: to_common() recovers -log10(p) from
+        # the raw text, so an exponent past the double-precision floor (the
+        # strongest loci in a genome-wide file) survives instead of collapsing
+        # to zero.
+        colClasses = list(
+            character = c(cfg$chr_col, cfg$p_col),
+            numeric = cfg$pos_col
+        ),
+        data.table = FALSE,
+        showProgress = FALSE
+    )
+
+    df <- raw |>
+        dplyr::select(dplyr::all_of(cols)) |>
+        # Stripped once here rather than at each of the three call sites; the
+        # shell filters these replaced did the same before comparing or binning.
+        dplyr::mutate(chrom = sub("^chr", "", chrom), pos = as.integer(pos))
+
     rm(raw)
     gc(verbose = FALSE, full = TRUE)
     df
@@ -605,31 +620,34 @@ run_mr <- function(dat, ld_full) {
 ## Shared by the mediation steps (07a, 07a2, 07b, 07c).
 
 # Put any registry file on the shared schema: ASCII-sorted GRCh38 variant ID with
-# beta, eaf and se oriented onto A1.
+# beta, eaf and se oriented onto A1. `df` comes from read_genome(), so it is
+# already on the standard names; `cfg` is still needed for effect_type,
+# se_source, neglog10_p and for the presence tests - a registry entry without
+# eaf_col yields no eaf column at all.
 to_common <- function(df, cfg) {
-    chr <- as.integer(sub("^chr", "", as.character(df[[cfg$chr_col]])))
-    pos <- as.integer(df[[cfg$pos_col]])
-    ea <- toupper(as.character(df[[cfg$ea_col]]))
-    oa <- toupper(as.character(df[[cfg$oa_col]]))
-    eff <- as.numeric(df[[cfg$effect_col]])
+    chr <- as.integer(sub("^chr", "", as.character(df[["chrom"]])))
+    pos <- as.integer(df[["pos"]])
+    ea <- toupper(as.character(df[["ea"]]))
+    oa <- toupper(as.character(df[["oa"]]))
+    eff <- as.numeric(df[["beta"]])
     if (identical(cfg$effect_type, "OR")) {
         eff <- log(eff)
     }
 
     se <- switch(
         if (is.null(cfg$se_source)) "column" else cfg$se_source,
-        column = as.numeric(df[[cfg$se_col]]),
+        column = as.numeric(df[["se"]]),
         ci = se_from_ci(
-            as.numeric(df[[cfg$ci_lower_col]]),
-            as.numeric(df[[cfg$ci_upper_col]])
+            as.numeric(df[["ci_lower"]]),
+            as.numeric(df[["ci_upper"]])
         ),
-        p = se_from_p(eff, as.numeric(df[[cfg$p_col]]))
+        p = se_from_p(eff, as.numeric(df[["p"]]))
     )
 
     p <- if (is.null(cfg$p_col)) {
         NA_real_
     } else {
-        raw <- as.numeric(df[[cfg$p_col]])
+        raw <- as.numeric(df[["p"]])
         if (isTRUE(cfg$neglog10_p)) 10^(-raw) else raw
     }
 
@@ -653,12 +671,12 @@ to_common <- function(df, cfg) {
     nlog10 <- if (is.null(cfg$p_col)) {
         NA_real_
     } else if (isTRUE(cfg$neglog10_p)) {
-        as.numeric(df[[cfg$p_col]])
+        as.numeric(df[["p"]])
     } else {
-        nlog10_from_p(df[[cfg$p_col]])
+        nlog10_from_p(df[["p"]])
     }
-    if (!is.null(cfg$nlog10_col) && cfg$nlog10_col %in% names(df)) {
-        alt <- as.numeric(df[[cfg$nlog10_col]])
+    if (!is.null(cfg$nlog10_col) && "nlog10" %in% names(df)) {
+        alt <- as.numeric(df[["nlog10"]])
         nlog10 <- ifelse(
             is.finite(alt) & (!is.finite(nlog10) | alt > nlog10),
             alt,
@@ -682,10 +700,10 @@ to_common <- function(df, cfg) {
         eaf = if (is.null(cfg$eaf_col)) {
             NA_real_
         } else {
-            f <- as.numeric(df[[cfg$eaf_col]])
+            f <- as.numeric(df[["eaf"]])
             ifelse(ea == A1, f, 1 - f)
         },
-        n = if (is.null(cfg$n_col)) NA_real_ else as.numeric(df[[cfg$n_col]])
+        n = if (is.null(cfg$n_col)) NA_real_ else as.numeric(df[["n"]])
     ) |>
         dplyr::filter(
             !is.na(beta),
@@ -697,35 +715,26 @@ to_common <- function(df, cfg) {
         dplyr::distinct(SNPid, .keep_all = TRUE)
 }
 
-# Pull a fixed set of variants out of a genome-wide file.
-lookup_at <- function(cfg, snpids, chr, pos, label = cfg$label) {
-    header <- header_of(cfg$file)
-    ci <- col_index(header, cfg$chr_col, cfg$file)
-    pi <- col_index(header, cfg$pos_col, cfg$file)
-
-    pos_file <- scratch_file()
-    writeLines(unique(paste(chr, pos, sep = "\t")), pos_file)
-    on.exit(unlink(pos_file), add = TRUE)
-
-    df <- data.table::fread(
-        cmd = sprintf(
-            "%s | awk -F'\\t' 'NR==FNR{keep[$1\"\\t\"$2];next} {c=$%d; sub(/^chr/,\"\",c)} FNR==1 || ((c\"\\t\"$%d) in keep)' %s -",
-            reader_cmd(cfg$file),
-            ci,
-            pi,
-            shQuote(pos_file)
-        ),
-        data.table = FALSE,
-        showProgress = FALSE
+# Pull a fixed set of variants out of a genome-wide file. `want` names them:
+# one row per wanted variant, with SNPid, chrom and pos. The join is on
+# position alone - a file spells its alleles its own way, and to_common()
+# settles the orientation afterwards - so `want` is made distinct first,
+# otherwise two instruments at one multi-allelic position would duplicate every
+# row the file has there. SNPid then keeps only the alleles actually wanted.
+lookup_at <- function(cfg, want) {
+    keep <- dplyr::distinct(
+        want,
+        chrom = as.character(chrom),
+        pos = as.integer(pos)
     )
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
+
+    df <- read_genome(cfg) |>
+        dplyr::inner_join(keep, by = c("chrom", "pos"))
     if (nrow(df) == 0) {
-        stop(sprintf("[%s] no rows matched", label))
+        stop(sprintf("[%s] no rows matched", cfg$label))
     }
 
-    to_common(df, cfg) |> dplyr::filter(SNPid %in% snpids)
+    to_common(df, cfg) |> dplyr::filter(SNPid %in% want$SNPid)
 }
 
 ## -----------------------------------------------------------------------------

@@ -16,49 +16,16 @@ source(here::here("helpers.R"))
 out_dir <- step_dir("07a_mediator_instruments")
 
 
-# Stream a file, keeping only variants below a p threshold. A file reporting
-# -log10(p) needs the comparison inverted.
+# Keep only variants below a p threshold. read_genome() leaves p as a string so
+# that to_common() can recover -log10(p) exactly; as.numeric() here is only for
+# the comparison. A file reporting -log10(p) needs that comparison inverted.
 read_significant <- function(cfg) {
-    header <- header_of(cfg$file)
-    pi <- col_index(header, cfg$p_col, cfg$file)
-
-    cond <- if (isTRUE(cfg$neglog10_p)) {
-        sprintf(
-            "$%d != \"NA\" && $%d != \"\" && $%d+0 > %.10f",
-            pi,
-            pi,
-            pi,
-            -log10(MED_CLUMP_P)
-        )
+    df <- read_genome(cfg)
+    if (isTRUE(cfg$neglog10_p)) {
+        filter(df, as.numeric(p) > -log10(MED_CLUMP_P))
     } else {
-        sprintf(
-            "$%d != \"NA\" && $%d != \"\" && ($%d+0 < %g || $%d+0 <= 0)",
-            pi,
-            pi,
-            pi,
-            MED_CLUMP_P,
-            pi
-        )
+        filter(df, as.numeric(p) < MED_CLUMP_P)
     }
-
-    keep_chr <- unique(c(cfg$p_col, cfg$nlog10_col))
-    df <- data.table::fread(
-        cmd = sprintf(
-            "%s | awk -F'\\t' 'NR==1 || (%s)'",
-            reader_cmd(cfg$file),
-            cond
-        ),
-        data.table = FALSE,
-        showProgress = FALSE,
-        colClasses = stats::setNames(
-            rep("character", length(keep_chr)),
-            keep_chr
-        )
-    )
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
-    df
 }
 
 # plink2 --clump ranks on its P column and cannot break ties at P = 0, where
@@ -112,14 +79,15 @@ instruments <- lapply(names(MEDIATORS), function(k) {
 ## ---- every instrument measured in every mediator -------------------------------
 # MVMR requires each instrument's association with ALL exposures, not only the
 # one it was selected for.
-union_snps <- instruments %>% distinct(SNPid, chr, pos)
+# `chrom`/`pos` are what lookup_at() joins on, SNPid what it filters to.
+union_snps <- instruments %>% distinct(SNPid, chrom = chr, pos)
 message(sprintf("\nUnion of instruments: %s variants", format(nrow(union_snps), big.mark = ",")))
 
 message("Measuring every mediator at the union:")
 med_at_union <- lapply(names(MEDIATORS), function(k) {
     cfg <- MEDIATORS[[k]]
     message(sprintf("  %s ...", cfg$label))
-    d <- lookup_at(cfg, union_snps$SNPid, union_snps$chr, union_snps$pos, cfg$label)
+    d <- lookup_at(cfg, union_snps)
     message(sprintf("    %s / %s variants present",
                     format(nrow(d), big.mark = ","), format(nrow(union_snps), big.mark = ",")))
     d %>% transmute(SNPid, mediator = k, beta, se, eaf, n)
@@ -161,7 +129,7 @@ message(sprintf("Looking up %s instruments across %d CAD studies ...",
 cad <- lapply(available, function(k) {
     cfg <- CAD_STUDIES[[k]]
     message(sprintf("  %s ...", cfg$label))
-    lookup_at(cfg, union_snps$SNPid, union_snps$chr, union_snps$pos, cfg$label) %>%
+    lookup_at(cfg, union_snps) %>%
         transmute(SNPid, beta, se, study = k)
 }) %>% bind_rows()
 

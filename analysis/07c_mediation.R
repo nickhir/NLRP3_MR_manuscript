@@ -93,19 +93,26 @@ sd_scales <- prov$sd_scales
 message(sprintf("\n2. Mediator SD scales from 07a: %s",
                 paste(sprintf("%s=%.3f", names(sd_scales), sd_scales), collapse = ", ")))
 
-alpha_fits <- lapply(MEDS, function(k) {
+# Each mediator is read once. lookup_at() is a whole-file read, so the
+# difference-method check in section 5 reuses this rather than repeating it.
+want <- ex %>% transmute(SNPid = SNP, chrom = chr, pos = pos_hg38)
+med_rows <- lapply(MEDS, function(k) {
     cfg <- MEDIATORS[[k]]
-    d <- lookup_at(cfg, ex$SNP, ex$chr, ex$pos_hg38, cfg$label)
+    d <- lookup_at(cfg, want)
     miss <- setdiff(ex$SNP, d$SNPid)
     if (length(miss) > 0)
         stop(sprintf("[%s] %d of 8 cis instruments absent: %s",
                      cfg$label, length(miss), paste(miss, collapse = ", ")))
-    d <- d[match(ex$SNP, d$SNPid), ]
+    d[match(ex$SNP, d$SNPid), ]
+})
+names(med_rows) <- MEDS
 
+alpha_fits <- lapply(MEDS, function(k) {
+    d <- med_rows[[k]]
     # The same SD scaling 07a applied before fitting the MVMR.
     fit <- correlated_ivw(bx, d$beta / sd_scales[[k]], d$se / sd_scales[[k]], R)
     fit$Sinv_med <- fit$Sinv
-    fit$label <- cfg$label
+    fit$label <- MEDIATORS[[k]]$label
     fit
 })
 names(alpha_fits) <- MEDS
@@ -275,12 +282,7 @@ if (any(rho[upper.tri(rho)] < 0))
 # (b) Difference method. IVW is linear in the outcome betas, so subtracting the
 # mediator-explained part of each SNP's CAD effect and re-running must
 # reproduce tau - IE.
-med_at_cis <- sapply(MEDS, function(k) {
-    cfg <- MEDIATORS[[k]]
-    d <- lookup_at(cfg, ex$SNP, ex$chr, ex$pos_hg38, cfg$label)
-    d <- d[match(ex$SNP, d$SNPid), ]
-    d$beta / sd_scales[[k]]
-})
+med_at_cis <- sapply(MEDS, function(k) med_rows[[k]]$beta / sd_scales[[k]])
 by_adj  <- cad$by - as.numeric(med_at_cis %*% beta)
 direct2 <- correlated_ivw(bx, by_adj, cad$byse, R)$est
 # The two agree exactly only under common weights; alpha uses per-mediator
