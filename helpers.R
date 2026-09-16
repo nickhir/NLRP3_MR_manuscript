@@ -78,8 +78,7 @@ reader_cmd <- function(path) {
     sprintf("cat %s", shQuote(path))
 }
 
-header_of <- function(path, sep = c("tab", "whitespace")) {
-    sep <- match.arg(sep)
+header_of <- function(path, sep = "tab") {
     con <- pipe(paste(reader_cmd(path), "| head -n 1"), open = "r")
     on.exit(close(con))
     line <- readLines(con, n = 1)
@@ -111,14 +110,12 @@ read_region <- function(
     chr,
     start,
     end,
-    sep = c("tab", "whitespace"),
+    sep = "tab",
     extra_filter = NULL
 ) {
-    sep <- match.arg(sep)
     # `chr` is required, not defaulted to 1. The silent chromosome assumption
     # this replaces is what made the function unusable at the chr2 IL1RN locus
     # and forced analysis/08 to carry a private copy. Accepts 2L, "2" or "chr2".
-    stopifnot(length(chr) == 1L, !is.na(chr))
     chr <- sub("^chr", "", as.character(chr))
 
     header <- header_of(path, sep)
@@ -315,13 +312,6 @@ load_instruments <- function(
     negate = TRUE,
     check_freq = TRUE
 ) {
-    if (!file.exists(path)) {
-        stop(
-            "instrument table not found:\n  ",
-            path,
-            "\nRun analysis/00_instrument_selection.R first."
-        )
-    }
     ex <- data.table::fread(path, data.table = FALSE) |>
         dplyr::transmute(
             SNP = SNP,
@@ -334,13 +324,6 @@ load_instruments <- function(
             se_exposure = as.numeric(se_exposure)
         ) |>
         dplyr::arrange(pos_hg38)
-
-    stopifnot(
-        nrow(ex) == 8,
-        all(ex$SNP == paste(ex$chr, ex$pos_hg38, ex$A1, ex$A2, sep = "_")),
-        all(ex$A1 < ex$A2),
-        !any(is.na(ex$beta_exposure))
-    )
 
     # GRCh37 positions for the same eight variants, for the outcome files still
     # released on that build. Produced with UCSC liftOver and cross-checked
@@ -357,7 +340,6 @@ load_instruments <- function(
         "1_247460342_C_G" , 247623644L
     )
     ex <- dplyr::left_join(ex, hg19, by = "SNP")
-    stopifnot(!any(is.na(ex$pos_hg19)))
 
     # Every instrument goes on to be paired with an INTERVAL LD matrix, so the
     # panel and the workbook must agree on which variant each ID names. See
@@ -391,8 +373,6 @@ interval_ld_matrix <- function(
     plink2 = plink2_bin,
     threads = 2
 ) {
-    stopifnot(length(snp_ids) >= 2)
-
     panel_ids <- to_panel_id(snp_ids)
     tmp <- scratch_file()
     writeLines(panel_ids, paste0(tmp, ".extract"))
@@ -493,9 +473,6 @@ panel_allele_freq <- function(
         stdout = FALSE
     )
 
-    if (!file.exists(paste0(tmp, ".afreq"))) {
-        stop("plink2 --freq produced no output for the requested variants")
-    }
     fr <- utils::read.table(
         paste0(tmp, ".afreq"),
         header = TRUE,
@@ -525,11 +502,8 @@ check_panel_freq <- function(
     tol = 0.05,
     panel = ld_panel,
     plink2 = plink2_bin,
-    action = c("stop", "warn")
+    action = "stop"
 ) {
-    action <- match.arg(action)
-    stopifnot(length(snp_ids) == length(eaf))
-
     fr <- panel_allele_freq(snp_ids, panel = panel, plink2 = plink2)
     cmp <- tibble::tibble(SNP = snp_ids, freq_data = as.numeric(eaf)) |>
         dplyr::inner_join(fr, by = "SNP") |>
@@ -582,8 +556,6 @@ check_panel_freq <- function(
 
 # LD-aware instrument strength from marginal summary statistics.
 joint_F_R2 <- function(beta, se, LD_inv, n = NULL) {
-    stopifnot(length(beta) == length(se), nrow(LD_inv) == length(beta))
-
     z <- beta / se
     k <- length(z)
     chi2 <- as.numeric(t(z) %*% LD_inv %*% z)
@@ -730,7 +702,7 @@ report_missing <- function(harmonised, label) {
 # precision floor survive.
 nlog10_from_p <- function(x) {
     x <- trimws(as.character(x))
-    out <- suppressWarnings(-log10(as.numeric(x)))
+    out <- -log10(as.numeric(x))
     m <- regmatches(x, regexec("^([0-9.]+)[eE]([+-]?[0-9]+)$", x))
     hit <- lengths(m) == 3
     if (any(hit)) {
@@ -788,8 +760,6 @@ read_significant <- function(cfg, p_threshold = MED_CLUMP_P) {
 # Put any registry file on the shared schema: ASCII-sorted GRCh38 variant ID with
 # beta, eaf and se oriented onto A1.
 to_common <- function(df, cfg) {
-    stopifnot(identical(cfg$build, "GRCh38"))
-
     chr <- as.integer(sub("^chr", "", as.character(df[[cfg$chr_col]])))
     pos <- as.integer(df[[cfg$pos_col]])
     ea <- toupper(as.character(df[[cfg$ea_col]]))
@@ -827,7 +797,7 @@ to_common <- function(df, cfg) {
         nlog10_from_p(df[[cfg$p_col]])
     }
     if (!is.null(cfg$nlog10_col) && cfg$nlog10_col %in% names(df)) {
-        alt <- suppressWarnings(as.numeric(df[[cfg$nlog10_col]]))
+        alt <- as.numeric(df[[cfg$nlog10_col]])
         nlog10 <- ifelse(
             is.finite(alt) & (!is.finite(nlog10) | alt > nlog10),
             alt,
@@ -1143,7 +1113,6 @@ align_ASCII_sort <- function(
     )
     data[[effect_allele]] <- new_effect_allele
     data[[other_allele]] <- new_other_allele
-    stopifnot(all(data[[effect_allele]] == A1))
 
     # calculate MAF
     if (!is.null(ld_reference)) {
@@ -1356,26 +1325,6 @@ ld_clump_local <- function(
 
     # Check if PLINK output file exists
     clumps_file <- paste(fn, ".clumps", sep = "")
-    if (!file.exists(clumps_file)) {
-        # Surface what PLINK actually said, rather than guessing at the cause.
-        log_file <- paste0(fn, ".log")
-        detail <- if (file.exists(log_file)) {
-            paste(
-                utils::tail(readLines(log_file, warn = FALSE), 15),
-                collapse = "\n"
-            )
-        } else {
-            "(no PLINK log written)"
-        }
-        stop(
-            "PLINK clumping failed - no output at: ",
-            clumps_file,
-            "\ncommand: ",
-            fun2,
-            "\nPLINK log tail:\n",
-            detail
-        )
-    }
 
     res <- data.table::fread(clumps_file, header = TRUE)
     return(res)

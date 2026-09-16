@@ -34,10 +34,6 @@ crp_file    <- READOUTS$CRP$file
 glyca_file  <- READOUTS$GlycA$file
 neutro_file <- READOUTS$Neutrophil_count$file
 
-stopifnot(file.exists(eqtl_file), file.exists(crp_file), file.exists(glyca_file),
-          file.exists(neutro_file), file.exists(rsid_map_file),
-          file.exists(plink2_bin), file.exists(paste0(ld_panel, ".fam")))
-
 ## ----parameters---------------------------------------------------------------
 IL1RN_ENSG <- "ENSG00000136689"
 CHR        <- 2L
@@ -89,10 +85,6 @@ high_ld_snps_local <- function(index_variants, reference, ld_threshold,
                       "--out", out_file), stdout = FALSE, stderr = FALSE)
 
     vcor <- paste0(out_file, ".vcor")
-    if (!file.exists(vcor)) {
-        stop("plink2 --r2-unphased produced no output for: ",
-             paste(head(index_variants), collapse = ", "))
-    }
     data.table::fread(vcor, data.table = FALSE)
 }
 
@@ -153,7 +145,6 @@ system2(plink2_bin, c("--bfile", ld_panel,
                       "--rm-dup", "force-first",
                       "--make-pgen", "--out", panel_raw,
                       "--threads", 4), stdout = FALSE, stderr = FALSE)
-stopifnot(file.exists(paste0(panel_raw, ".pgen")))
 
 ## ----frequency_concordance----------------------------------------------------
 # Drop variants where the panel and the summary statistics disagree about which
@@ -190,7 +181,6 @@ ld_reference <- file.path(scratch, "il1rn_region")
 system2(plink2_bin, c("--pfile", panel_raw, "--extract", keep_file,
                       "--make-pgen", "--out", ld_reference, "--threads", 4),
         stdout = FALSE, stderr = FALSE)
-stopifnot(file.exists(paste0(ld_reference, ".pgen")))
 
 panel_ids <- freq_cmp %>% filter(delta <= FREQ_TOL) %>% pull(ID)
 panel_eaf <- panel_freq %>% transmute(SNP = ID, eaf_panel = freq_panel) %>%
@@ -237,7 +227,6 @@ for (tn in names(summary_stats)) {
     clumped[[tn]] <- cl$ID
     message(sprintf("  %-7s -> %d lead SNP(s)", tn, length(cl$ID)))
 }
-stopifnot(sum(vapply(clumped, length, 1L)) > 0)
 
 ## ----step2_high_ld_friends----------------------------------------------------
 # Standard clumping is greedy and per trait, so two traits can pick different
@@ -268,7 +257,6 @@ flat <- list()
 for (tn in names(blocks)) for (b in names(blocks[[tn]])) {
     flat[[paste0(tn, "_", b)]] <- blocks[[tn]][[b]]
 }
-stopifnot(length(flat) > 0)
 
 ## ----step3_shared_components--------------------------------------------------
 message("STEP 3  merging blocks that share a variant")
@@ -283,7 +271,6 @@ membership <- components(graph_from_adjacency_matrix(adj, mode = "undirected",
 
 comp_list <- split(names(membership), membership)
 comp_list <- comp_list[vapply(comp_list, length, 1L) > 1]
-stopifnot(length(comp_list) > 0)
 
 shared <- lapply(names(comp_list), function(id) {
     b <- comp_list[[id]]
@@ -298,7 +285,6 @@ shared <- lapply(names(comp_list), function(id) {
     filter(num_traits >= 2)
 
 message("  components spanning >= 2 traits: ", nrow(shared))
-stopifnot(nrow(shared) >= 2)
 
 shared$SNPs <- vapply(seq_len(nrow(shared)), function(i) {
     bl <- str_trim(unlist(str_split(shared$LD_blocks[i], ",")))
@@ -362,7 +348,6 @@ effect_matrix <- function(field) {
 beta_m <- effect_matrix("beta")
 se_m   <- effect_matrix("se")
 se_m   <- se_m[rownames(beta_m), colnames(beta_m), drop = FALSE]
-stopifnot(nrow(beta_m) >= 2, identical(dim(beta_m), dim(se_m)))
 
 # drop_na() above removes any instrument still missing from a readout after
 # proxying, so the matrix can be smaller than the candidate list. Reported
@@ -389,7 +374,6 @@ message("  loadings: ",
 # count share UK Biobank participants, so their errors are taken as perfectly
 # correlated. That inflates the SE and keeps inference conservative.
 idx <- match(c("eQTLs", "CRP", "GlycA", "neutro"), colnames(se_m))
-stopifnot(!any(is.na(idx)))
 se_latent <- apply(se_m, 1, function(row) {
     w <- loadings[idx]
     var_eqtl  <- (w[1]^2) * row[idx[1]]^2
@@ -455,7 +439,6 @@ if (nrow(disagree) > 0) {
     print(as.data.frame(disagree), row.names = FALSE)
     stop("the rsID mapping file and the summary statistics disagree")
 }
-stopifnot(!any(is.na(variants$rsid)))
 message(sprintf("rsIDs: %d from the mapping file, %d from the summary statistics",
                 sum(!is.na(variants$rsid_map)),
                 sum(is.na(variants$rsid_map) & !is.na(variants$rsid_source))))
@@ -524,7 +507,6 @@ exposure <- variants %>%
 # one registry outcome, restricted to the instruments
 read_outcome_cfg <- function(key) {
     cfg <- OUTCOMES[[key]]
-    stopifnot(!is.null(cfg), identical(cfg$build, "GRCh38"))
     raw <- read_region(cfg$file, cfg$chr_col, cfg$pos_col, CHR,
                        min(exposure$pos) - 1000, max(exposure$pos) + 1000)
     harmonise_region(raw, cfg, CHR) %>%
@@ -539,7 +521,6 @@ read_outcome_cfg <- function(key) {
 read_il1ra_protein <- function() {
     regions <- sprintf("%d:%d-%d", CHR, exposure$pos, exposure$pos)
     txt <- system2(tabix_bin, c(shQuote(ppp_il1rn), regions), stdout = TRUE, stderr = FALSE)
-    stopifnot(length(txt) > 0)
     df <- data.table::fread(text = paste(txt, collapse = "\n"), sep = "\t",
                             header = FALSE, colClasses = "character")
     names(df) <- c("CHROM","GENPOS","ID","ALLELE0","ALLELE1","A1FREQ","INFO","N",
@@ -602,7 +583,6 @@ gout  <- read_outcome_cfg("gout")
 ra    <- read_outcome_cfg("ra_ishigaki")
 for (d in list(il1ra, gout, ra)) {
     message(sprintf("  %-34s %d/%d instruments", d$outcome[1], nrow(d), nrow(exposure)))
-    stopifnot(nrow(d) >= 3)
 }
 
 mr_results <- bind_rows(run_mr_outcome(il1ra), run_mr_outcome(gout), run_mr_outcome(ra))

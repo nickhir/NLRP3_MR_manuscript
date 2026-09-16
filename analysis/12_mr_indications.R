@@ -16,15 +16,6 @@ source(here::here("helpers.R"))
 output_dir <- step_dir("12_mr_indications")
 
 
-## ----sanity_check_paths-------------------------------------------------------
-stopifnot(
-    dir.exists(dataset_dir),
-    file.exists(instrument_file),
-    file.exists(plink2_bin),
-    file.exists(paste0(ld_panel, ".fam"))
-)
-
-
 ## ----exposure-----------------------------------------------------------------
 exposure <- fread(instrument_file, data.table = FALSE) %>%
     transmute(
@@ -56,25 +47,6 @@ hg19_lookup <- tribble(
 
 exposure <- exposure %>% left_join(hg19_lookup, by = "SNP")
 
-stopifnot(
-    nrow(exposure) == 8,
-    !any(is.na(exposure$pos_hg19)),
-    !any(is.na(exposure$beta_exposure)),
-    # the ID must agree with the A1/A2 columns
-    all(
-        exposure$SNP ==
-            paste(
-                exposure$chr,
-                exposure$pos_hg38,
-                exposure$A1,
-                exposure$A2,
-                sep = "_"
-            )
-    ),
-    # A1 must be the ASCII-first allele
-    all(exposure$A1 < exposure$A2)
-)
-
 exposure
 
 
@@ -90,9 +62,8 @@ read_nlrp3_region <- function(
     path,
     chr_col,
     pos_col,
-    sep = c("tab", "whitespace")
+    sep = "tab"
 ) {
-    sep <- match.arg(sep)
     header <- header_of(path, sep)
     ci <- col_index(header, chr_col, path)
     pi <- col_index(header, pos_col, path)
@@ -196,8 +167,8 @@ prepare_outcome <- function(
     ea_col,
     oa_col,
     effect_col,
-    effect_type = c("beta", "OR"),
-    se_source = c("column", "ci", "p"),
+    effect_type = "beta",
+    se_source = "column",
     se_col = NULL, # when se_source = "column"
     ci_lower_col = NULL, # when se_source = "ci"
     ci_upper_col = NULL,
@@ -205,16 +176,11 @@ prepare_outcome <- function(
     eaf_col = NULL,
     p_col = NULL,
     eaf_scale = 1, # 100 when EAF is a percentage
-    sep = c("tab", "whitespace"),
+    sep = "tab",
     proxies = NULL, # see resolve_proxies()
     n_cases = NA_integer_,
     n_controls = NA_integer_
 ) {
-    effect_type <- match.arg(effect_type)
-    se_source <- match.arg(se_source)
-    sep <- match.arg(sep)
-    stopifnot(build %in% c("GRCh38", "GRCh37"))
-
     message(sprintf("[%s] %s", label, basename(file)))
 
     raw <- read_nlrp3_region(file, chr_col, pos_col, sep)

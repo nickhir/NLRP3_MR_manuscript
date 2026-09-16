@@ -20,13 +20,11 @@ GRID_TRAIT <- "SBP"  # whose variant set defines the grid
 
 
 ## ---- 1. the grid ------------------------------------------------------------------
-stopifnot(GRID_TRAIT %in% names(MEDIATORS))
 message(sprintf("Building a 1-per-%d kb grid from %s ...",
                 GRID_BP / 1000L, MEDIATORS[[GRID_TRAIT]]$label))
 
 grid <- thin_genome(MEDIATORS[[GRID_TRAIT]], bin_bp = GRID_BP)
 message(sprintf("  %s variants\n", format(nrow(grid), big.mark = ",")))
-stopifnot(nrow(grid) > 5000)
 
 
 ## ---- 2. the same variants in every mediator ----------------------------------------

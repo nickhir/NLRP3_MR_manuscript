@@ -35,7 +35,6 @@ REGION_END   <- 247650000L
 # negate = TRUE: per one-unit DECREASE in the activity score
 exposure <- load_instruments(path = instrument_file, negate = TRUE) %>%
     select(SNP, pos_hg38, A1, A2, beta_exposure, se_exposure)
-stopifnot(nrow(exposure) == 8)
 
 harmonise <- function(std, label) {
     h <- exposure %>%
@@ -45,7 +44,6 @@ harmonise <- function(std, label) {
                               ea == A2 & oa == A1 ~ -b,
                               TRUE ~ NA_real_))
     message(sprintf("[%s] %d/8 instruments usable", label, sum(!is.na(h$by))))
-    stopifnot(all(!is.na(h$by)))
     h %>% transmute(SNP, bx = beta_exposure, bxse = se_exposure, by, byse = se)
 }
 

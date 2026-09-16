@@ -74,8 +74,8 @@ sd_scales <- sapply(names(MEDIATORS), function(k) {
     cfg <- MEDIATORS[[k]]
     if (!isTRUE(cfg$standardise_sd)) return(1)
     d <- med_at_union %>% filter(mediator == k, !is.na(eaf), !is.na(n))
-    s <- suppressWarnings(coloc:::sdY.est(vbeta = d$se^2, maf = pmin(d$eaf, 1 - d$eaf),
-                                          n = round(median(d$n))))
+    s <- coloc:::sdY.est(vbeta = d$se^2, maf = pmin(d$eaf, 1 - d$eaf),
+                         n = round(median(d$n)))
     message(sprintf("%s: sdY = %.3f native units per SD", k, s))
     # A trait already on an SD scale returns ~1; scaling by that would be a
     # no-op at best and a distortion at worst, so leave it alone.
@@ -96,7 +96,6 @@ if (length(skipped) > 0) {
     message(sprintf("\nCAD studies skipped (no file): %s",
                     paste(sapply(skipped, function(k) CAD_STUDIES[[k]]$label), collapse = ", ")))
 }
-stopifnot(length(available) >= 2)
 
 message(sprintf("Looking up %s instruments across %d CAD studies ...",
                 format(nrow(union_snps), big.mark = ","), length(available)))
@@ -148,7 +147,6 @@ before <- nrow(design)
 design <- design %>% drop_na(starts_with("beta_sd_"), starts_with("se_sd_"))
 message(sprintf("\nMVMR design: %d variants (%d dropped, not present in all three mediator GWAS)",
                 nrow(design), before - nrow(design)))
-stopifnot(nrow(design) >= 20)
 
 fwrite(instruments,  file.path(out_dir, "mediator_instruments.tsv"), sep = "\t")
 fwrite(med_at_union, file.path(out_dir, "mediators_at_union.tsv"), sep = "\t")

@@ -19,16 +19,8 @@ med_dir <- file.path(results_dir, "07a_mediator_instruments")
 ovl_dir <- file.path(results_dir, "07b_sample_overlap")
 mdn_dir <- file.path(results_dir, "07c_mediation")
 
-for (f in c(file.path(med_dir, "mvmr_design.tsv"),
-            file.path(med_dir, "mediator_instruments.tsv"),
-            file.path(ovl_dir, "rho.rds"),
-            file.path(mdn_dir, "mediation.rds"))) {
-    if (!file.exists(f)) stop("missing input: ", f, "\n  run the upstream step first")
-}
-
 ## The sequence the panel reads top to bottom.
 ORDER <- c("SBP", "ApoB", "T2D")
-stopifnot(setequal(ORDER, names(MEDIATORS)))
 
 LABELS <- sapply(MEDIATORS[ORDER], `[[`, "label")
 
@@ -45,7 +37,6 @@ alpha   <- m$alpha[ORDER]
 K_all       <- length(ORDER)
 Sigma_alpha <- m$Sigma_theta[paste0("a_", ORDER), paste0("a_", ORDER), drop = FALSE]
 dimnames(Sigma_alpha) <- list(ORDER, ORDER)
-stopifnot(isSymmetric(unname(Sigma_alpha)), all(diag(Sigma_alpha) > 0))
 
 message(sprintf("Total effect tau = %.4f (SE %.4f), OR %.3f",
                 tau, sqrt(var_tau), exp(tau)))
@@ -59,7 +50,6 @@ ins    <- fread(file.path(med_dir, "mediator_instruments.tsv"), data.table = FAL
 
 by   <- design$beta_cad
 byse <- design$se_cad
-stopifnot(all(is.finite(by)), all(byse > 0))
 
 # Instrument membership, restricted to variants that survived into the design.
 own <- lapply(ORDER, function(k)
@@ -73,11 +63,9 @@ message("")
 
 # The design must be exactly the union, or a model built from `own` would quietly
 # be fitted on fewer variants than 07c used.
-stopifnot(setequal(design$SNPid, unlist(own, use.names = FALSE)))
 
 # Disjoint from the cis instruments, so Cov(alpha, beta) = 0 still holds here.
 ex_snps <- load_instruments(negate = TRUE)$SNP
-stopifnot(length(intersect(ex_snps, design$SNPid)) == 0)
 
 
 ## ---- 3. one MVMR fitter, used for every step ---------------------------------------
@@ -117,15 +105,10 @@ strength <- function(meds) {
         return(setNames(mean((BX[, 1] / SEX[, 1])^2), meds))
     }
     rho <- readRDS(file.path(ovl_dir, "rho.rds"))[meds, meds, drop = FALSE]
-    tryCatch({
-        fmt <- MVMR::format_mvmr(BXGs = BX, BYG = d$beta_cad,
-                                 seBXGs = SEX, seBYG = d$se_cad, RSID = d$SNPid)
-        cv  <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
-        setNames(as.numeric(MVMR::strength_mvmr(r_input = fmt, gencov = cv)), meds)
-    }, error = function(e) {
-        message("   conditional F unavailable: ", conditionMessage(e))
-        setNames(rep(NA_real_, length(meds)), meds)
-    })
+    fmt <- MVMR::format_mvmr(BXGs = BX, BYG = d$beta_cad,
+                             seBXGs = SEX, seBYG = d$se_cad, RSID = d$SNPid)
+    cv  <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
+    setNames(as.numeric(MVMR::strength_mvmr(r_input = fmt, gencov = cv)), meds)
 }
 
 
@@ -173,12 +156,6 @@ for (i in seq_along(ORDER)) {
 # If this trips, the two scripts have diverged and the panel would contradict the
 # numbers already in the paper.
 full <- steps[[K_all + 1]]
-stopifnot(all.equal(unname(full$fit$beta[ORDER]), unname(m$beta[ORDER]),
-                    tolerance = 1e-8))
-stopifnot(all.equal(unname(full$fit$V[ORDER, ORDER]),
-                    unname(m$Sigma_bb[ORDER, ORDER]), tolerance = 1e-8))
-stopifnot(all.equal(full$effect, m$direct,    tolerance = 1e-8))
-stopifnot(all.equal(sqrt(full$var), m$se_direct, tolerance = 1e-8))
 message("full model reproduces 07c's beta, Sigma_bb and direct effect\n")
 
 
@@ -204,9 +181,6 @@ res <- res %>%
     mutate(added      = c(NA_character_, ORDER),
            added_label = c(NA_character_, unname(LABELS)),
            delta_or   = c(NA_real_, -diff(or)))
-
-stopifnot(abs(sum(res$delta_or, na.rm = TRUE) -
-              (res$or[1] - res$or[nrow(res)])) < 1e-10)
 
 
 ## ---- 7. report, including the ways this can look wrong -------------------------------

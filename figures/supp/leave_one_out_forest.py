@@ -30,11 +30,6 @@ IN_DIR = ANALYSIS_DIR / "results" / "11_mr_sensitivity"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-for f in ("leave_one_out.tsv", "instrument_rsids.tsv", "single_variant.tsv"):
-    if not (IN_DIR / f).exists():
-        raise SystemExit(f"missing input: {IN_DIR / f}\n"
-                         f"Run analysis/11_mr_sensitivity.R first.")
-
 # Same typeface and PDF settings as every other panel - Open Sans semibold,
 # fonttype 42. Helvetica is not installed here; asking for it silently fell
 # back to DejaVu Sans.

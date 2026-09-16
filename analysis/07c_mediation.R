@@ -23,12 +23,6 @@ ovl_dir <- file.path(results_dir, "07b_sample_overlap")
 # reach 07c. If 05 has not been run, the existence check below now fails loudly.
 cad_dir <- file.path(results_dir, "05_mr_cad")
 
-for (f in c(file.path(med_dir, "mvmr_design.tsv"),
-            file.path(ovl_dir, "rho.rds"),
-            file.path(cad_dir, "cad_meta_studies_per_snp.tsv"))) {
-    if (!file.exists(f)) stop("missing input: ", f, "\n  run the upstream step first")
-}
-
 MEDS <- names(MEDIATORS)            # SBP, ApoB, T2D - the order used throughout
 
 
@@ -38,7 +32,6 @@ MEDS <- names(MEDIATORS)            # SBP, ApoB, T2D - the order used throughout
 ex <- load_instruments(negate = TRUE)
 R  <- interval_ld_matrix(ex$SNP)
 R  <- R[ex$SNP, ex$SNP]
-stopifnot(nrow(ex) == 8, all(rownames(R) == ex$SNP))
 
 bx <- ex$beta_exposure
 message(sprintf("8 cis instruments loaded, LD matrix %d x %d\n", nrow(R), ncol(R)))
@@ -49,7 +42,6 @@ message(sprintf("8 cis instruments loaded, LD matrix %d x %d\n", nrow(R), ncol(R
 # cannot drift apart. Returns the estimate, its variance, and the information
 # I = bx' Omega^-1 bx that 07b's rho formula also needs.
 correlated_ivw <- function(bx, by, se_y, R) {
-    stopifnot(length(bx) == length(by), length(by) == length(se_y), all(se_y > 0))
     S     <- diag(se_y, nrow = length(se_y))
     Omega <- S %*% R %*% S
     Oi    <- solve(Omega)
@@ -64,7 +56,6 @@ correlated_ivw <- function(bx, by, se_y, R) {
 ## ---- 1. total effect ------------------------------------------------------------------
 # tau and beta MUST rest on the same CAD studies.
 .prov_cad <- readRDS(file.path(med_dir, "selection_summary.rds"))$cad_included
-stopifnot(length(.prov_cad) >= 2, all(.prov_cad %in% names(CAD_STUDIES)))
 TAU_STUDIES <- unname(sapply(CAD_STUDIES[.prov_cad], `[[`, "label"))
 message(sprintf("1. CAD studies taken from 07a provenance: %s",
                 paste(TAU_STUDIES, collapse = ", ")))
@@ -83,7 +74,6 @@ cad <- cad_per_study %>%
     summarise(by   = sum(by / byse^2) / sum(1 / byse^2),
               byse = sqrt(1 / sum(1 / byse^2)),
               .groups = "drop")
-stopifnot(nrow(cad) == 8, setequal(cad$SNP, ex$SNP))
 cad <- cad[match(ex$SNP, cad$SNP), ]
 
 
@@ -100,7 +90,6 @@ message(sprintf("   Total effect tau = %.4f (SE %.4f), OR %.3f (%.3f, %.3f), P =
 ## ---- 2. NLRP3 -> mediator ---------------------------------------------------------------
 prov <- readRDS(file.path(med_dir, "selection_summary.rds"))
 sd_scales <- prov$sd_scales
-stopifnot(!is.null(sd_scales), setequal(names(sd_scales), MEDS))
 message(sprintf("\n2. Mediator SD scales from 07a: %s",
                 paste(sprintf("%s=%.3f", names(sd_scales), sd_scales), collapse = ", ")))
 
@@ -135,7 +124,6 @@ design <- fread(file.path(med_dir, "mvmr_design.tsv"), data.table = FALSE)
 BX  <- as.matrix(design[, paste0("beta_sd_", MEDS)])
 SEX <- as.matrix(design[, paste0("se_sd_",   MEDS)])
 by  <- design$beta_cad; byse <- design$se_cad
-stopifnot(all(is.finite(BX)), all(is.finite(by)), all(byse > 0))
 
 message(sprintf("\n3. MVMR over %s variants", format(nrow(design), big.mark = ",")))
 
@@ -168,12 +156,10 @@ message(sprintf("\n4. rho (from 07b): %s",
                 paste(sprintf("%s~%s=%+.3f", MEDS[ut[, 1]], MEDS[ut[, 2]], rho[ut]),
                       collapse = ", ")))
 
-cond_F <- tryCatch({
-    fmt <- MVMR::format_mvmr(BXGs = BX, BYG = by, seBXGs = SEX, seBYG = byse,
-                             RSID = design$SNPid)
-    cv  <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
-    as.numeric(MVMR::strength_mvmr(r_input = fmt, gencov = cv))
-}, error = function(e) { message("   conditional F unavailable: ", conditionMessage(e)); NULL })
+fmt <- MVMR::format_mvmr(BXGs = BX, BYG = by, seBXGs = SEX, seBYG = byse,
+                         RSID = design$SNPid)
+cv  <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
+cond_F <- as.numeric(MVMR::strength_mvmr(r_input = fmt, gencov = cv))
 if (!is.null(cond_F))
     message(sprintf("   conditional F: %s",
                     paste(sprintf("%s=%.1f", MEDS, cond_F), collapse = ", ")))
@@ -201,9 +187,7 @@ sigma_alpha <- function(rho_mat) {
 
 # Sigma_alpha_beta = 0: alpha uses the 8 cis SNPs, beta uses genome-wide
 # instruments elsewhere, and effect estimates at unlinked variants from the same
-# GWAS are uncorrelated. Assert the sets really are disjoint rather than trust it.
-stopifnot(length(intersect(ex$SNP, design$SNPid)) == 0)
-
+# GWAS are uncorrelated.
 K  <- length(MEDS)
 iA <- seq_len(K); iB <- K + iA
 

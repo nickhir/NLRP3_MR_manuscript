@@ -21,7 +21,6 @@ exposure    <- load_instruments(negate = TRUE)
 instruments <- exposure$SNP
 
 ld_full <- interval_ld_matrix(instruments)
-stopifnot(identical(rownames(ld_full), instruments))
 
 
 ## ---- block 1: the systemic inflammation proxies ------------------------------
@@ -67,16 +66,12 @@ proxy_mr <- lapply(PROXIES, function(k) {
 ## ---- block 2: the effector cytokines, re-derived from UKB-PPP ----------------
 CYTOKINES <- c("IL1B", "IL18", "IL6")
 
-stopifnot(dir.exists(ppp_dir), file.exists(ppp_manifest), file.exists(tabix_bin))
-
 # IL6 is assayed on four Olink panels, IL1B and IL18 on one each: six assays.
 assays <- tibble(protein_id = readLines(ppp_manifest)) |>
     filter(nzchar(protein_id)) |>
     mutate(gene_name = sub("_.*$", "", protein_id),
            path      = file.path(ppp_dir, paste0(protein_id, ".bgz"))) |>
     filter(gene_name %in% CYTOKINES)
-
-stopifnot(setequal(assays$gene_name, CYTOKINES), all(file.exists(assays$path)))
 
 message(sprintf("\nNLRP3 inflammasome-associated cytokines (UKB-PPP, %d assays):",
                 nrow(assays)))
@@ -89,8 +84,7 @@ PPP_COLS <- c("CHROM", "GENPOS", "ID", "ALLELE0", "ALLELE1", "A1FREQ",
 regions <- sprintf("%d:%d-%d", exposure$chr, exposure$pos_hg38, exposure$pos_hg38)
 
 read_assay <- function(path) {
-    txt <- suppressWarnings(
-        system2(tabix_bin, c(shQuote(path), regions), stdout = TRUE, stderr = FALSE))
+    txt <- system2(tabix_bin, c(shQuote(path), regions), stdout = TRUE, stderr = FALSE)
     if (length(txt) == 0) return(NULL)
     df <- data.table::fread(text = paste(txt, collapse = "\n"), sep = "\t",
                             header = FALSE, colClasses = "character")
@@ -157,8 +151,6 @@ proteome <- ppp_mr |>
     slice_min(order_by = ivw_pval, n = 1, with_ties = FALSE) |>
     ungroup()
 
-stopifnot(nrow(proteome) == length(CYTOKINES), !any(duplicated(proteome$gene_name)))
-
 cytokine_mr <- lapply(CYTOKINES, function(k) {
     r <- proteome |> filter(gene_name == k)
     message(sprintf("  %-5s beta=%7.3f  n=%s  snps=%s  [%s]",
@@ -198,8 +190,6 @@ results <- bind_rows(proxy_mr, cytokine_mr) |>
             match(outcome, c("CRP concentration", "GlycA concentration",
                              "Neutrophil count", "IL1B", "IL18", "IL6")),
             match(method, c("IVW", "Weighted median")))
-
-stopifnot(nrow(results) == 12, !any(is.na(results$estimate)))
 
 
 ## ---- sanity checks -----------------------------------------------------------

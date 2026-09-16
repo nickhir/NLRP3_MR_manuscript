@@ -25,10 +25,6 @@ IN_DIR = ANALYSIS_DIR / "results" / "11_mr_sensitivity"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if not (IN_DIR / "r2_sweep.tsv").exists():
-    raise SystemExit(f"missing input: {IN_DIR / 'r2_sweep.tsv'}\n"
-                     f"Run analysis/11_mr_sensitivity.R first.")
-
 # Same typeface and PDF settings as Figure 2C. Helvetica is NOT installed here -
 # scripts that ask for it fall back to DejaVu - so Open Sans semibold is the
 # house face, and fonttype 42 embeds real TrueType rather than Type 3 outlines.

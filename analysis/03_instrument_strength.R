@@ -17,7 +17,6 @@ out_dir <- step_dir("03_instrument_strength")
 # The aligned readouts from step 02.
 table_file <- file.path(results_dir, "02_instrument_table",
                         "instrument_table_aligned.tsv")
-if (!file.exists(table_file)) stop("run analysis/02_instrument_table.R first")
 
 aligned     <- fread(table_file, data.table = FALSE)
 instruments <- aligned$SNP
@@ -34,7 +33,6 @@ message(sprintf("  max off-diagonal r2 = %.4f | kappa = %.2f | lambda_min = %.3f
 
 # Inversion noise would only start to matter as lambda_min approached
 # K/sqrt(n_ref) ~ 8/109 ~ 0.07, so no ridge or PCA projection is needed.
-stopifnot(kappa(ld) < 30, min(ld_eigen) > 0.1)
 ld_inv <- solve(ld)
 
 

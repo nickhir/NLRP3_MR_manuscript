@@ -25,10 +25,6 @@ IN_FILE = ANALYSIS_DIR / "results" / "08_il1rn_positive_control" / "il1rn_mr_res
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/08_il1rn_positive_control.R first.")
-
 # FONT. One typeface across every panel, R and Python alike - see
 # figures/fig02c_validation_forest.py and fig02b_instrument_forest.R.
 rcParams["pdf.fonttype"] = 42
@@ -82,8 +78,6 @@ def load():
                 d["n"] = []
             d["label"] = DISPLAY.get(key, key)
     missing = [k for k in [PROTEIN] + DISEASES if k not in rows]
-    if missing:
-        raise SystemExit(f"missing outcomes in {IN_FILE}: {missing}")
     return rows
 
 

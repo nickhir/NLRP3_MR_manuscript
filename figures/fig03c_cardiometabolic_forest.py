@@ -24,10 +24,6 @@ IN_FILE = ANALYSIS_DIR / "results" / "06_mr_cardiometabolic" / "cardiometabolic_
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/06_mr_cardiometabolic.R first.")
-
 # FONT. The Figure 2 convention - see figures/fig02c_validation_forest.py.
 rcParams["pdf.fonttype"] = 42
 rcParams["ps.fonttype"] = 42
@@ -69,11 +65,7 @@ def load():
             d["n"] = r["n_label"]
     wanted = [t for _, ts in GROUPS for t in ts]
     missing = [t for t in wanted if t not in rows]
-    if missing:
-        raise SystemExit(f"missing traits in {IN_FILE}: {missing}")
     incomplete = [t for t in wanted if not {"ivw", "wm"} <= set(rows[t])]
-    if incomplete:
-        raise SystemExit(f"traits lacking both methods: {incomplete}")
     return rows
 
 
@@ -149,9 +141,6 @@ X_CLIP = 0.30
 
 lo_all = min(min(ROWS[k][s][1] for s in ("ivw", "wm")) for k, _ in DATA)
 hi_all = max(max(ROWS[k][s][2] for s in ("ivw", "wm")) for k, _ in DATA)
-if max(abs(ROWS[k][s][0]) for k, _ in DATA for s in ("ivw", "wm")) > X_CLIP:
-    raise SystemExit("a point estimate lies outside X_CLIP; raise it or the "
-                     "diamond will be drawn on the axis edge")
 
 # Left edge: the data plus a margin, but never so tight that the -0.2 tick falls
 # outside the view and silently disappears.

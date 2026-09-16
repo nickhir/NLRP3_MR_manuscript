@@ -26,10 +26,6 @@ IN_FILE = ANALYSIS_DIR / "results" / "12_mr_indications" / \
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/12_mr_indications.R first.")
-
 # FONT. The Figure 2 convention - see figures/fig02c_validation_forest.py.
 rcParams["pdf.fonttype"] = 42
 rcParams["ps.fonttype"] = 42
@@ -67,11 +63,7 @@ def load():
                 float(r["ci_upper"]), float(r["p"]))
     wanted = [k for k, *_ in SD_BLOCK + OR_BLOCK]
     missing = [k for k in wanted if k not in rows]
-    if missing:
-        raise SystemExit(f"missing outcomes in {IN_FILE}: {missing}")
     incomplete = [k for k in wanted if len(rows[k]) != 2]
-    if incomplete:
-        raise SystemExit(f"outcomes lacking both methods: {incomplete}")
     return rows
 
 

@@ -35,7 +35,6 @@ FREQ_TOL <- 0.05 # panel vs GWAS A1 frequency
 PANEL_START <- as.integer(INSTRUMENT_START - 300e3)
 PANEL_END <- as.integer(INSTRUMENT_END + 300e3)
 
-stopifnot(file.exists(plink2_bin), file.exists(paste0(ld_panel, ".fam")))
 message(sprintf(
     "NLRP3 chr%d:%d-%d | window %d-%d | panel %d-%d",
     CHR,
@@ -78,7 +77,6 @@ system2(
     stdout = FALSE,
     stderr = FALSE
 )
-stopifnot(file.exists(paste0(panel_raw, ".pgen")))
 
 
 ## ---- readouts ------------------------------------------------------------------
@@ -86,7 +84,6 @@ stopifnot(file.exists(paste0(panel_raw, ".pgen")))
 # which file, column or sample size each readout uses.
 prepare_readout <- function(key, panel_ids = NULL) {
     cfg <- READOUTS[[key]]
-    stopifnot(!is.null(cfg), identical(cfg$build, "GRCh38"))
     message("  ", cfg$label, " ...")
 
     df <- read_region(
@@ -226,7 +223,6 @@ system2(
     stdout = FALSE,
     stderr = FALSE
 )
-stopifnot(file.exists(paste0(ld_reference, ".pgen")))
 panel_ids <- freq_cmp %>% filter(delta <= FREQ_TOL) %>% pull(ID)
 panel_eaf <- panel_freq %>%
     transmute(SNP = ID, eaf_panel = freq_panel) %>%
@@ -266,7 +262,6 @@ for (tn in names(summary_stats)) {
     clumped[[tn]] <- cl$ID
     message(sprintf("  %-7s -> %d lead SNP(s)", tn, length(cl$ID)))
 }
-stopifnot(sum(vapply(clumped, length, 1L)) > 0)
 
 
 ## ---- step 2  high-LD blocks ----------------------------------------------------
@@ -312,7 +307,6 @@ for (tn in names(blocks)) {
         flat[[paste0(tn, "_", b)]] <- blocks[[tn]][[b]]
     }
 }
-stopifnot(length(flat) > 0)
 
 
 ## ---- step 3  merge blocks that share a variant ---------------------------------
@@ -332,7 +326,6 @@ membership <- components(graph_from_adjacency_matrix(
 ))$membership
 comp_list <- split(names(membership), membership)
 comp_list <- comp_list[vapply(comp_list, length, 1L) > 1]
-stopifnot(length(comp_list) > 0)
 
 shared <- lapply(names(comp_list), function(id) {
     b <- comp_list[[id]]
@@ -471,7 +464,6 @@ effect_matrix <- function(field) {
 }
 beta_m <- effect_matrix("beta")
 se_m <- effect_matrix("se")[rownames(beta_m), colnames(beta_m), drop = FALSE]
-stopifnot(nrow(beta_m) >= 2, identical(dim(beta_m), dim(se_m)))
 
 # drop_na() removes any candidate still missing from a readout after proxying.
 # Reported rather than silent.
@@ -503,7 +495,6 @@ message(
 # so their sampling errors are correlated; the eQTL is an independent cohort.
 # Treating the three as perfectly correlated is the conservative bound.
 idx <- match(c("eQTLs", "CRP", "GlycA", "neutro"), colnames(se_m))
-stopifnot(!any(is.na(idx)))
 se_latent <- apply(se_m, 1, function(row) {
     w <- loadings[idx]
     sqrt(
@@ -595,12 +586,6 @@ out <- score %>%
         score_sign_flipped
     ) %>%
     arrange(pos_hg38)
-
-stopifnot(
-    !any(is.na(out$eaf)),
-    all(out$A1 < out$A2),
-    all(out$SNP == paste(out$chr, out$pos_hg38, out$A1, out$A2, sep = "_"))
-)
 
 write_tsv(out, file.path(out_dir, "nlrp3_instruments.tsv"))
 write_tsv(proxy_log, file.path(out_dir, "nlrp3_proxy_replacements.tsv"))

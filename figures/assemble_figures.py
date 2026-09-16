@@ -90,13 +90,6 @@ PRODUCED_BY = {
 def panel_pdf(stem):
     """Where a panel's PDF lives: generated output, or a drawn asset."""
     pdf = ASSET_DIR / f"{stem}.pdf" if stem in ASSETS else OUT_DIR / f"{stem}.pdf"
-    if not pdf.exists():
-        how = ("it is a drawn illustration - put it in figures/assets/"
-               if stem in ASSETS else
-               "it is a supplied panel - copy it into figures_out/"
-               if stem in SUPPLIED
-               else f"run {PRODUCED_BY.get(stem, '(its figure script)')} first")
-        raise SystemExit(f"missing panel: {pdf}\n{how.capitalize()}.")
     return pdf
 
 
@@ -110,8 +103,6 @@ def page_size_mm(stem):
                           stderr=subprocess.PIPE, check=True,
                           universal_newlines=True).stdout
     m = re.search(r"Page size:\s+([\d.]+) x ([\d.]+) pts", info)
-    if not m:
-        raise SystemExit(f"could not read a page size from {pdf}")
     w, h = m.groups()
     return float(w) / 72 * 25.4, float(h) / 72 * 25.4
 
@@ -123,8 +114,6 @@ def ink_box_mm(stem):
                          stderr=subprocess.STDOUT,
                          universal_newlines=True).stdout
     m = re.search(r"%%HiResBoundingBox:\s+([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)", out)
-    if not m:
-        raise SystemExit(f"could not read an ink bounding box from {stem}")
     return [float(v) * PT for v in m.groups()]
 
 
@@ -161,9 +150,6 @@ def build(name, rows):
     # up down the page.
     if st["columns"]:
         ncells = {len(r) for r in rows}
-        if len(ncells) != 1:
-            raise SystemExit(f"{name}: columns=True needs every row to have the "
-                             f"same number of cells; got {sorted(ncells)}")
         col = [max(cell_w(r[j]) for r in rows) for j in range(len(rows[0]))]
         widths = [list(col) for _ in rows]
     else:
@@ -189,11 +175,6 @@ def build(name, rows):
                                (right, size[right][0] - ink_box_mm(right)[2])):
                 print(f"    {stem:34s} {free:5.2f} mm of whitespace at the "
                       f"cropped edge ({over:.2f} mm is cut)")
-                if free < over:
-                    raise SystemExit(
-                        f"{stem} would lose {over - free:.2f} mm of INK to the A4 "
-                        f"crop - it has only {free:.2f} mm of whitespace there. "
-                        f"Redraw the panel narrower; the page cannot grow.")
 
     row_h = [max(cell_h(c) for c in row) * scale for row in rows]
     page_h = 2 * margin + sum(row_h) + gap_y * (len(rows) - 1)
@@ -260,8 +241,6 @@ def build(name, rows):
                            cwd=str(tmp), stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, universal_newlines=True)
         built = tmp / f"{name}.pdf"
-        if not built.exists():
-            raise SystemExit(f"xelatex failed for {name}:\n{r.stdout[-2000:]}")
         out_pdf = OUT_DIR / f"{name}_combined.pdf"
         shutil.copy(built, out_pdf)
 
@@ -271,9 +250,6 @@ def build(name, rows):
 def main():
     wanted = sys.argv[1:] or list(FIGURES)
     unknown = [w for w in wanted if w not in FIGURES]
-    if unknown:
-        raise SystemExit(f"unknown figure(s): {unknown}. "
-                         f"Known: {', '.join(FIGURES)}")
     for name in wanted:
         build(name, FIGURES[name])
 

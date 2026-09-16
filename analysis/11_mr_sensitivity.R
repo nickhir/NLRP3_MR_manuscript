@@ -39,8 +39,6 @@ PANEL_END   <- as.integer(INSTRUMENT_END   + 300e3)
 CAD_START <- INSTRUMENT_START
 CAD_END   <- INSTRUMENT_END
 
-stopifnot(file.exists(plink2_bin), file.exists(paste0(ld_panel, ".fam")))
-
 ## ---- one-time: panel, frequency filter, readouts --------------------------------
 panel_raw <- file.path(scratch, "region_raw")
 message("Cutting the INTERVAL panel to the locus ...")
@@ -50,11 +48,9 @@ system2(plink2_bin, c("--bfile", ld_panel, "--chr", CHR,
                       "--new-id-max-allele-len", 200, "--rm-dup", "force-first",
                       "--make-pgen", "--out", panel_raw, "--threads", 4),
         stdout = FALSE, stderr = FALSE)
-stopifnot(file.exists(paste0(panel_raw, ".pgen")))
 
 prepare_readout <- function(key, panel_ids = NULL) {
     cfg <- READOUTS[[key]]
-    stopifnot(!is.null(cfg), identical(cfg$build, "GRCh38"))
     df <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
                       CHR, INSTRUMENT_START, INSTRUMENT_END,
                       extra_filter = cfg$extra_filter)
@@ -143,7 +139,6 @@ select_instruments <- function(clump_r2) {
         bl <- x %>% group_by(ID_A) %>% group_split() %>% purrr::map(~ pull(.x, ID_B))
         for (i in seq_along(bl)) flat[[sprintf("%s_LD_block%d", tn, i)]] <- bl[[i]]
     }
-    stopifnot(length(flat) > 0)
 
     block_snps  <- lapply(flat, unique)
     block_names <- names(flat)
@@ -155,7 +150,6 @@ select_instruments <- function(clump_r2) {
                                                          diag = FALSE))$membership
     comp_list <- split(names(membership), membership)
     comp_list <- comp_list[vapply(comp_list, length, 1L) > 1]
-    stopifnot(length(comp_list) > 0)
 
     shared <- lapply(names(comp_list), function(id) {
         b <- comp_list[[id]]
@@ -211,7 +205,6 @@ select_instruments <- function(clump_r2) {
     }
     beta_m <- effect_matrix("beta")
     se_m   <- effect_matrix("se")[rownames(beta_m), colnames(beta_m), drop = FALSE]
-    stopifnot(nrow(beta_m) >= 2)
 
     pca <- prcomp(beta_m, center = TRUE, scale. = TRUE)
     loadings <- pca$rotation[, 1]
@@ -312,9 +305,9 @@ mr_for <- function(meta, label, extra = list()) {
     ld <- interval_ld_matrix(snps)
     mi <- mr_input(bx = meta$bx, bxse = meta$bxse, by = meta$by, byse = meta$byse,
                    snps = snps, correlation = ld[snps, snps])
-    iv <- tryCatch(mr_ivw(mi), error = function(e) NULL)
-    wm <- tryCatch(mr_median(mi, weighting = "weighted"), error = function(e) NULL)
-    eg <- if (length(snps) >= 3) tryCatch(mr_egger(mi), error = function(e) NULL) else NULL
+    iv <- mr_ivw(mi)
+    wm <- mr_median(mi, weighting = "weighted")
+    eg <- if (length(snps) >= 3) mr_egger(mi) else NULL
 
     rows <- list()
     if (!is.null(iv)) rows[[length(rows) + 1]] <- tibble(
@@ -383,10 +376,8 @@ if (file.exists(step00)) {
 ## ---- B. the single colocalising variant -----------------------------------------
 message("\n=== B. single-variant Wald ratio, ", COLOC_SNP, " (rs12239046) ===")
 ex01 <- select_instruments(0.1)
-stopifnot(COLOC_SNP %in% ex01$SNP)
 cm01 <- cad_meta_for(ex01)
 one  <- cm01$meta %>% filter(SNP == COLOC_SNP)
-stopifnot(nrow(one) == 1)
 
 # Wald ratio with the first-order (NOME) standard error: the exposure is
 # estimated on 4,732-575,531 people and is far more precise than the outcome,

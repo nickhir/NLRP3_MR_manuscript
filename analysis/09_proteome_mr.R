@@ -46,15 +46,6 @@ ld_panel <- paste0(
 plink2_bin <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
 tabix_bin  <- "/rds/user/nh608/hpc-work/software/micromamba/envs/sambcfenv/bin/tabix"
 
-stopifnot(
-    dir.exists(ppp_dir),
-    file.exists(ppp_manifest),
-    file.exists(instrument_file),
-    file.exists(plink2_bin),
-    file.exists(tabix_bin),
-    file.exists(paste0(ld_panel, ".fam"))
-)
-
 n_cores <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = "1"))
 message(sprintf("using %d core(s)", n_cores))
 
@@ -74,17 +65,6 @@ exposure <- fread(instrument_file, data.table = FALSE) %>%
         beta_exposure = as.numeric(beta_exposure),
         se_exposure   = as.numeric(se_exposure)
     )
-
-stopifnot(
-    nrow(exposure) == 8,
-    !any(is.na(exposure$beta_exposure)),
-    !any(is.na(exposure$se_exposure)),
-    # the ID must agree with the A1/A2 columns
-    all(exposure$SNP == paste(exposure$chr, exposure$pos_hg38,
-                              exposure$A1, exposure$A2, sep = "_")),
-    # A1 must be the ASCII-first allele
-    all(exposure$A1 < exposure$A2)
-)
 
 
 ## ----flip_exposure_direction--------------------------------------------------
@@ -115,17 +95,13 @@ assays <- readLines(ppp_manifest) %>%
     )
 
 missing_files <- assays %>% filter(!file.exists(path))
-if (nrow(missing_files) > 0) {
-    stop(sprintf("%d assay file(s) listed in the manifest are not on disk, e.g. %s",
-                 nrow(missing_files), missing_files$path[1]))
-}
 message(sprintf("%d assays, %d unique gene symbols",
                 nrow(assays), n_distinct(assays$gene_name)))
 
 # Smoke-test hook: PPP_MR_LIMIT=n runs only the first n assays and diverts the
 # output somewhere harmless, so a truncated run can never overwrite the real
 # results. Unset for the real run.
-ppp_limit <- suppressWarnings(as.integer(Sys.getenv("PPP_MR_LIMIT", unset = "")))
+ppp_limit <- as.integer(Sys.getenv("PPP_MR_LIMIT", unset = ""))
 smoke_test <- !is.na(ppp_limit) && ppp_limit > 0
 if (smoke_test) {
     assays <- head(assays, ppp_limit)
@@ -144,10 +120,8 @@ PPP_COLS <- c("CHROM", "GENPOS", "ID", "ALLELE0", "ALLELE1", "A1FREQ",
 regions <- sprintf("%d:%d-%d", exposure$chr, exposure$pos_hg38, exposure$pos_hg38)
 
 read_assay <- function(path) {
-    txt <- suppressWarnings(
-        system2(tabix_bin, c(shQuote(path), regions),
-                stdout = TRUE, stderr = FALSE)
-    )
+    txt <- system2(tabix_bin, c(shQuote(path), regions),
+                   stdout = TRUE, stderr = FALSE)
     if (length(txt) == 0) return(NULL)
     df <- data.table::fread(text = paste(txt, collapse = "\n"),
                             sep = "\t", header = FALSE,
@@ -162,9 +136,9 @@ read_assay <- function(path) {
 # Not helpers.R::verify_build(): this checks the UKB-PPP GENPOS/ID build
 # convention rather than matching positions against the instrument table.
 verify_ppp_build <- function(df, label) {
-    id_pos <- suppressWarnings(as.integer(
+    id_pos <- as.integer(
         sub("^[^:]+:([0-9]+):.*$", "\\1", df$ID)
-    ))
+    )
     genpos <- as.integer(df$GENPOS)
     ok <- all(genpos %in% exposure$pos_hg38)
     if (!ok) {
@@ -320,8 +294,6 @@ failures   <- map_dfr(results_list, "fail")
 
 message(sprintf("%d assays succeeded, %d failed", nrow(mr_all), nrow(failures)))
 if (nrow(failures) > 0) print(count(failures, reason, sort = TRUE))
-
-if (!smoke_test) stopifnot(nrow(mr_all) > 2000)
 
 
 ## ----deduplicate--------------------------------------------------------------

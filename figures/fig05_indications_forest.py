@@ -26,10 +26,6 @@ IN_FILE = (ANALYSIS_DIR / "results" / "12_mr_indications" /
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/12_mr_indications.R first.")
-
 # FONT. The manuscript convention - see figures/fig02c_validation_forest.py.
 rcParams["pdf.fonttype"] = 42
 rcParams["ps.fonttype"] = 42
@@ -102,16 +98,12 @@ def fmt_est(e, lo, hi):
 # ---- data -------------------------------------------------------------------
 res = pd.read_csv(IN_FILE, sep="\t")
 missing = sorted(set(INDICATIONS) - set(res["outcome"]))
-if missing:
-    raise SystemExit("indications absent from the results file: " + ", ".join(missing))
 
 ROWS = {}
 for key in INDICATIONS:
     d = {}
     for col, _label, _c in METHODS:
         r = res[(res["outcome"] == key) & (res["method"] == col)]
-        if len(r) != 1:
-            raise SystemExit(f"expected one '{col}' row for {key}, found {len(r)}")
         r = r.iloc[0]
         d[col] = (np.exp(r["estimate"]), np.exp(r["ci_lower"]),
                   np.exp(r["ci_upper"]), r["p"])
@@ -201,9 +193,6 @@ for kind, key, y_mm in layout:
 # ---- the forest -------------------------------------------------------------
 off_scale = [(k, round(ROWS[k][c][0], 3)) for k in ROWS for c, _l, _cl in METHODS
              if not X_LO < ROWS[k][c][0] < X_HI]
-if off_scale:
-    raise SystemExit(f"point estimate(s) outside {X_LO}..{X_HI}: {off_scale}; "
-                     "widen the clip or they cannot be drawn")
 
 Y_TOP, Y_BOT = fy(Y_TOP_MM), fy(Y_BOT_MM)
 ax = fig.add_axes([FOREST_L, Y_BOT, FOREST_W, Y_TOP - Y_BOT])

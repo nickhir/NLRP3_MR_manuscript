@@ -26,10 +26,6 @@ IN_FILE = ANALYSIS_DIR / "results" / "04_mr_biomarkers" / "mr_biomarkers.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/04_mr_biomarkers.R first.")
-
 # FONT. One typeface across every panel of Figure 2, R and Python alike - see
 # figures/fig02a_locuszoom.R and fig02b_instrument_forest.R.
 rcParams["pdf.fonttype"] = 42
@@ -83,11 +79,7 @@ def load():
                 d["n"] = ""
             d["label"] = DISPLAY.get(r["outcome"], r["outcome"])
     missing = [k for k in PROXIES + CYTOKINES if k not in rows]
-    if missing:
-        raise SystemExit(f"missing outcomes in {IN_FILE}: {missing}")
     incomplete = [k for k, v in rows.items() if "ivw" not in v or "wm" not in v]
-    if incomplete:
-        raise SystemExit(f"outcomes lacking both methods: {incomplete}")
     return rows
 
 

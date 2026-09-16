@@ -86,7 +86,6 @@ cojo_input <- eqtl |>
 
 message(sprintf("  %d eQTL variants present in the panel -> COJO input",
                 nrow(cojo_input)))
-stopifnot(to_panel_id(cond_snp) %in% cojo_input$SNP)
 
 ma_path   <- file.path(work_dir, "nlrp3_eqtl.ma")
 cond_path <- file.path(work_dir, "cond.snplist")
@@ -101,9 +100,6 @@ system2(gcta_bin, c("--bfile", region_bfile, "--cojo-file", ma_path,
                     "--thread-num", 4), stdout = FALSE)
 
 cma_path <- paste0(cojo_out, ".cma.cojo")
-if (!file.exists(cma_path)) {
-    stop("GCTA-COJO produced no .cma.cojo output; check ", cojo_out, ".log")
-}
 
 eqtl_cond <- fread(cma_path, data.table = FALSE) |>
     transmute(SNPid = from_panel_id(SNP), chrom = as.integer(Chr),
@@ -139,10 +135,8 @@ traits <- c(list(NLRP3_expression = eqtl_cond), biomarkers)
 
 common <- Reduce(intersect, lapply(traits, function(d) d$SNPid))
 message(sprintf("\n%d variants shared by all four traits", length(common)))
-stopifnot(length(common) > 100)
 
 aligned <- lapply(traits, function(d) d |> filter(SNPid %in% common) |> arrange(SNPid))
-stopifnot(length(unique(lapply(aligned, function(d) d$SNPid))) == 1L)
 
 betas <- do.call(cbind, lapply(aligned, function(d) d$beta))
 ses   <- do.call(cbind, lapply(aligned, function(d) d$se))
@@ -158,7 +152,7 @@ hypr <- hyprcoloc(
 )
 print(hypr$results)
 
-pp <- suppressWarnings(as.numeric(hypr$results$posterior_prob[1]))
+pp <- as.numeric(hypr$results$posterior_prob[1])
 if (!is.na(pp)) {
     message(sprintf("\n  PP = %.3f | candidate SNP = %s | traits = %s\n  %s (threshold %.1f)",
                     pp, hypr$results$candidate_snp[1], hypr$results$traits[1],

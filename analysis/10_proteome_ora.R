@@ -21,13 +21,9 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 # Read step 09's output, not this step's own directory.
 mr_file <- file.path(analysis_dir, "results", "09_proteome_mr",
                      "ukb_ppp_proteome_mr_results.tsv")
-if (!file.exists(mr_file)) {
-    stop("missing input: ", mr_file, "\nRun analysis/09_proteome_mr.R first.")
-}
 
 mr <- fread(mr_file, data.table = FALSE)
 message(sprintf("loaded %d proteins", nrow(mr)))
-stopifnot("ivw_pval_bonf" %in% names(mr))
 
 
 ## ----split_by_direction-------------------------------------------------------

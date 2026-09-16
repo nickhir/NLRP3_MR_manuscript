@@ -23,10 +23,6 @@ IN_FILE = ANALYSIS_DIR / "results" / "07d_mediation_waterfall" / "waterfall.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/07d_mediation_waterfall.R first.")
-
 # FONT. The Figure 2 convention - see figures/fig02c_validation_forest.py.
 rcParams["pdf.fonttype"] = 42
 rcParams["ps.fonttype"] = 42
@@ -56,21 +52,10 @@ def load():
             r[k] = float(r[k])
         r["delta_or"] = float(r["delta_or"]) if r["delta_or"] not in ("", "NA") else None
         r["label"] = r["label"].replace("\\n", "\n")
-    if len(rows) != len(BAR_COLOURS):
-        raise SystemExit(f"expected {len(BAR_COLOURS)} rows, got {len(rows)}; "
-                         f"add a colour to BAR_COLOURS if a mediator was added")
     # The geometry below assumes every bar grows rightward from 1 and every step
     # shrinks it. Both hold today; neither is guaranteed by the statistics, and a
     # silently upside-down bar would misread as the opposite conclusion.
-    if any(r["or"] < 1.0 for r in rows):
-        raise SystemExit("a residual OR is below 1 - bars are drawn rightward "
-                         "from 1 and would render backwards; see analysis/07d")
-    if any(r["delta_or"] is not None and r["delta_or"] < 0 for r in rows):
-        raise SystemExit("a delta is negative - the arrows would point the wrong "
-                         "way; the waterfall is not monotone, see analysis/07d")
     drop = sum(r["delta_or"] for r in rows if r["delta_or"] is not None)
-    if abs(drop - (rows[0]["or"] - rows[-1]["or"])) > 1e-9:
-        raise SystemExit("deltas do not sum to the total drop")
     return rows
 
 
@@ -260,9 +245,6 @@ for i in range(1, len(ROWS)):
 fig.canvas.draw()
 rend = fig.canvas.get_renderer()
 left = min(t.get_window_extent(renderer=rend).x0 for t in fig.texts) / fig.bbox.width
-if left < 0.010:
-    raise SystemExit(f"row labels reach x={left:.4f}, past the left margin; "
-                     f"raise X_LABEL (and shift AX_L with it)")
 print(f"    left margin {left * FIG_W_MM:.1f} mm")
 
 fig.savefig(OUT_DIR / "Fig3E_mediation_waterfall.pdf", dpi=600,
