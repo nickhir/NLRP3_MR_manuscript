@@ -27,9 +27,7 @@ readouts <- lapply(names(READOUTS), function(k) {
     cfg <- READOUTS[[k]]
     message(sprintf("  %s ...", cfg$label))
 
-    d <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
-                     CHR, LOCUS_START, LOCUS_END,
-                     extra_filter = cfg$extra_filter) |>
+    d <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
         harmonise_region(cfg, CHR) |>
         filter(SNPid %in% instruments) |>
         transmute(SNP = SNPid, trait = k, beta, se, p, n = cfg$n) |>

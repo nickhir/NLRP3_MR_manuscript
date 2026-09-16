@@ -142,31 +142,35 @@ high_ld_snps_local <- function(index_variants, reference, ld_threshold,
 prepare_readout <- function(path, label, chr_col, pos_col, ea_col, oa_col,
                             beta_col, se_col, p_col, n_value,
                             eaf_col = NULL, rsid_col = NULL,
-                            extra_filter = NULL, panel_ids = NULL) {
+                            gene_col = NULL, gene = NULL, panel_ids = NULL) {
     message("  ", label, " ...")
-    # read_region()'s 7th positional argument is `sep`, so extra_filter must be
-    # passed by name.
-    df <- read_region(path, chr_col, pos_col, CHR, LOCUS_START, LOCUS_END,
-                      extra_filter = extra_filter)
+    # read_region() takes a registry entry; these readouts are spelled out here
+    # rather than in config.R because they are the chr2 releases.
+    df <- read_region(
+        list(file = path, chr_col = chr_col, pos_col = pos_col,
+             ea_col = ea_col, oa_col = oa_col, effect_col = beta_col,
+             se_col = se_col, p_col = p_col, eaf_col = eaf_col,
+             rsid_col = rsid_col, gene_col = gene_col, gene = gene),
+        CHR, LOCUS_START, LOCUS_END)
 
-    df$.chr  <- sub("^chr", "", as.character(df[[chr_col]]))
-    df$SNPid <- create_SNPid_vectorized(df, chr = ".chr", pos = pos_col,
-                                        other_allele = oa_col, effect_allele = ea_col)
+    df$.chr  <- sub("^chr", "", as.character(df$chrom))
+    df$SNPid <- create_SNPid_vectorized(df, chr = ".chr", pos = "pos",
+                                        other_allele = "oa", effect_allele = "ea")
     df <- df %>% filter(!grepl("D|I", SNPid))
-    df$.raw_eaf <- if (is.null(eaf_col))  NA_real_      else as.numeric(df[[eaf_col]])
-    df$.rsid    <- if (is.null(rsid_col)) NA_character_ else as.character(df[[rsid_col]])
+    df$.raw_eaf <- if (is.null(eaf_col))  NA_real_      else as.numeric(df$eaf)
+    df$.rsid    <- if (is.null(rsid_col)) NA_character_ else as.character(df$rsid)
 
-    df <- align_ASCII_sort(df, effect_allele = ea_col, other_allele = oa_col,
-                           beta = beta_col, ld_reference = NULL, status = TRUE)
+    df <- align_ASCII_sort(df, effect_allele = "ea", other_allele = "oa",
+                           beta = "beta", ld_reference = NULL, status = TRUE)
 
     out <- df %>%
         transmute(SNP = SNPid,
-                  position_hg38 = as.integer(.data[[pos_col]]),
-                  A1 = .data[[ea_col]], A2 = .data[[oa_col]],
+                  position_hg38 = as.integer(pos),
+                  A1 = ea, A2 = oa,
                   A1_freq = ifelse(flipped, 1 - .raw_eaf, .raw_eaf),
-                  beta = as.numeric(.data[[beta_col]]),
-                  se   = as.numeric(.data[[se_col]]),
-                  p    = as.numeric(.data[[p_col]]),
+                  beta = as.numeric(beta),
+                  se   = as.numeric(se),
+                  p    = as.numeric(p),
                   rsid_source = .rsid,
                   n = n_value) %>%
         filter(!is.na(beta), !is.na(se), se > 0, !is.na(p)) %>%
@@ -244,7 +248,7 @@ eQTLs <- prepare_readout(eqtl_file, "IL1RN expression", "chr", "pos_b38",
                          "effect_allele", "other_allele", "slope", "slope_se",
                          "pval_nominal", N_INTERVAL, eaf_col = "af",
                          rsid_col = "variant_id",
-                         extra_filter = sprintf('$1=="%s"', IL1RN_ENSG),
+                         gene_col = "phenotype_id", gene = IL1RN_ENSG,
                          panel_ids = panel_ids)
 CRP <- prepare_readout(crp_file, "CRP concentration", "hm_chrom", "hm_pos",
                        "hm_effect_allele", "hm_other_allele", "hm_beta",
@@ -462,11 +466,8 @@ variants <- tibble(SNP = rownames(beta_m)) %>%
            A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4L)) %>%
     arrange(position_hg38)
 
-rsid_map <- fread(
-    cmd = sprintf("zcat %s | awk -F'\\t' 'NR==1 || $3==\"chr%d\"'",
-                  shQuote(rsid_map_file), CHR),
-    data.table = FALSE, showProgress = FALSE) %>%
-    filter(pos %in% variants$position_hg38) %>%
+rsid_map <- fread(rsid_map_file, data.table = FALSE, showProgress = FALSE) %>%
+    filter(chr == paste0("chr", CHR), pos %in% variants$position_hg38) %>%
     transmute(position_hg38 = as.integer(pos), rsid_map = rsid)
 
 from_sumstats <- bind_rows(eQTLs, CRP, GlycA, neutro) %>%
@@ -554,7 +555,7 @@ exposure <- variants %>%
 # one registry outcome, restricted to the instruments
 read_outcome_cfg <- function(key) {
     cfg <- OUTCOMES[[key]]
-    raw <- read_region(cfg$file, cfg$chr_col, cfg$pos_col, CHR,
+    raw <- read_region(cfg, CHR,
                        min(exposure$pos) - 1000, max(exposure$pos) + 1000)
     harmonise_region(raw, cfg, CHR) %>%
         transmute(SNP = SNPid, beta_outcome = beta, se_outcome = se, p_outcome = p) %>%

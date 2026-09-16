@@ -14,7 +14,9 @@ dataset_dir  <- file.path(analysis_dir, "datasets")
 output_dir   <- file.path(analysis_dir, "results", "05_mr_cad")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-# Shared readers - reader_cmd(), header_of(), col_index(), read_region().
+# CAD_STUDIES names the file and column spelling of each cohort; helpers.R
+# supplies read_region() and load_instruments().
+source(file.path(analysis_dir, "config.R"))
 source(file.path(analysis_dir, "helpers.R"))
 
 # The eight cis-NLRP3 instruments and the activity score, selected on the
@@ -70,33 +72,27 @@ interval_ld <- function(snp_ids) {
 ld_full <- interval_ld(exposure$SNP)
 
 # ---- the three studies ----------------------------------------------------
-aragam <- read_region(file.path(dataset_dir, "coronary_artery_disease_aragam_GCST90132314.h.tsv.gz"),
-                      "chromosome", "base_pair_location",
-                      CHR, REGION_START, REGION_END) %>%
-    transmute(join_pos = as.integer(base_pair_location),
-              ea = toupper(effect_allele), oa = toupper(other_allele),
-              b = as.numeric(beta), se = as.numeric(standard_error)) %>%
+aragam <- read_region(CAD_STUDIES$aragam, CHR, REGION_START, REGION_END) %>%
+    transmute(join_pos = as.integer(pos),
+              ea = toupper(ea), oa = toupper(oa),
+              b = as.numeric(beta), se = as.numeric(se)) %>%
     harmonise("Aragam et al.")
 
 # MVP reports an odds ratio with a confidence interval; standard_error is NA
-mvp <- read_region(file.path(dataset_dir, "coronary_atherosclerosis_mvp_GCST90475936.h.tsv.gz"),
-                   "chromosome", "base_pair_location",
-                   CHR, REGION_START, REGION_END) %>%
-    transmute(join_pos = as.integer(base_pair_location),
-              ea = toupper(effect_allele), oa = toupper(other_allele),
-              b  = log(as.numeric(odds_ratio)),
+mvp <- read_region(CAD_STUDIES$mvp, CHR, REGION_START, REGION_END) %>%
+    transmute(join_pos = as.integer(pos),
+              ea = toupper(ea), oa = toupper(oa),
+              b  = log(as.numeric(beta)),
               se = (log(as.numeric(ci_upper)) - log(as.numeric(ci_lower))) / (2 * qnorm(0.975))) %>%
     harmonise("MVP")
 
 # All of Us: long format, already subset to the instruments. MarkerID is
 # chr:pos_OTHER/EFFECT, so the allele after the slash is SAIGE's Allele2 and
 # the one BETA refers to.
-finngen <- read_region(
-    file.path(dataset_dir, "coronary_atherosclerosis_finngen_R12.gz"),
-    "#chrom", "pos", CHR, REGION_START, REGION_END) %>%
+finngen <- read_region(CAD_STUDIES$finngen, CHR, REGION_START, REGION_END) %>%
     transmute(join_pos = as.integer(pos),
-              ea = toupper(alt), oa = toupper(ref),
-              b = as.numeric(beta), se = as.numeric(sebeta)) %>%
+              ea = toupper(ea), oa = toupper(oa),
+              b = as.numeric(beta), se = as.numeric(se)) %>%
     harmonise("FinnGen")
 
 aou <- read_tsv(file.path(dataset_dir, "coronary_atherosclerosis_allofus_CV_404_2.tsv"),

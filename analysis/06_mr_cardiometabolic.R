@@ -39,11 +39,10 @@ run_trait <- function(key) {
     message(sprintf("  %-14s (%s, %s) ...", cfg$label, cfg$accession, cfg$build))
 
     rng <- REGION[[cfg$build]]
-    raw <- read_region(cfg$file, cfg$chr_col, cfg$pos_col, CHR, rng[1], rng[2],
-                       sep = if (is.null(cfg$sep)) "tab" else cfg$sep)
+    raw <- read_region(cfg, CHR, rng[1], rng[2])
 
     # Confirm the file is on the build it claims before trusting any match.
-    verify_build(raw, cfg$pos_col, cfg$build, cfg$label, exposure)
+    verify_build(raw, "pos", cfg$build, cfg$label, exposure)
 
     harmonised <- harmonise_region(raw, cfg, CHR, pos_map = pos_map)
 
@@ -52,10 +51,10 @@ run_trait <- function(key) {
     # one axis and SBP here matches the mediation alpha.
     sd_scale <- 1
     if (isTRUE(cfg$standardise_sd)) {
-        eaf <- as.numeric(raw[[cfg$eaf_col]])
-        nn  <- as.numeric(raw[[cfg$n_col]])
-        d <- tibble(se = as.numeric(raw[[cfg$se_col]]),
-                    eaf = eaf, n = nn) |> filter(!is.na(se), !is.na(eaf), !is.na(n))
+        d <- tibble(se = as.numeric(raw$se),
+                    eaf = as.numeric(raw$eaf),
+                    n = as.numeric(raw$n)) |>
+            filter(!is.na(se), !is.na(eaf), !is.na(n))
         s <- coloc:::sdY.est(vbeta = d$se^2,
                              maf = pmin(d$eaf, 1 - d$eaf),
                              n = round(median(d$n)))

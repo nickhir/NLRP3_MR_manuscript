@@ -22,9 +22,7 @@ exposure <- load_instruments()
 message("Loading NLRP3 expression (INTERVAL, GRCh38) ...")
 
 cfg  <- READOUTS$NLRP3_expression
-eqtl <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
-                    CHR, LOCUS_START, LOCUS_END,
-                    extra_filter = cfg$extra_filter) |>
+eqtl <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
     harmonise_region(cfg, CHR)
 
 message(sprintf("  %d variants", nrow(eqtl)))
@@ -121,8 +119,7 @@ message("\nLoading the biomarkers (GRCh38, unconditioned):")
 biomarkers <- lapply(c("CRP", "GlycA", "Neutrophil_count"), function(k) {
     cfg <- READOUTS[[k]]
     message(sprintf("  %s ...", cfg$label))
-    d <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
-                     CHR, LOCUS_START, LOCUS_END) |>
+    d <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
         harmonise_region(cfg, CHR)
     message(sprintf("    %d variants", nrow(d)))
     d

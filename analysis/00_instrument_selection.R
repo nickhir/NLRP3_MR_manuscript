@@ -86,53 +86,42 @@ prepare_readout <- function(key, panel_ids = NULL) {
     cfg <- READOUTS[[key]]
     message("  ", cfg$label, " ...")
 
-    df <- read_region(
-        cfg$file,
-        cfg$chr_col,
-        cfg$pos_col,
-        CHR,
-        INSTRUMENT_START,
-        INSTRUMENT_END,
-        extra_filter = cfg$extra_filter
-    )
-    df$.chr <- sub("^chr", "", as.character(df[[cfg$chr_col]]))
+    df <- read_region(cfg, CHR, INSTRUMENT_START, INSTRUMENT_END)
+    df$.chr <- sub("^chr", "", as.character(df$chrom))
     df$SNPid <- create_SNPid_vectorized(
         df,
         chr = ".chr",
-        pos = cfg$pos_col,
-        other_allele = cfg$oa_col,
-        effect_allele = cfg$ea_col
+        pos = "pos",
+        other_allele = "oa",
+        effect_allele = "ea"
     )
     df <- df %>% filter(!grepl("D|I", SNPid))
 
-    eaf_col <- cfg$eaf_col
-    df$.raw_eaf <- if (is.null(eaf_col)) NA_real_ else as.numeric(df[[eaf_col]])
+    df$.raw_eaf <- if (is.null(cfg$eaf_col)) NA_real_ else as.numeric(df$eaf)
 
     # align_ASCII_sort() flips beta onto the ASCII-first allele; the frequency
     # has to follow it, which is what `flipped` is for.
     df <- align_ASCII_sort(
         df,
-        effect_allele = cfg$ea_col,
-        other_allele = cfg$oa_col,
-        beta = cfg$effect_col,
+        effect_allele = "ea",
+        other_allele = "oa",
+        beta = "beta",
         ld_reference = NULL,
         status = TRUE
     )
 
-    p <- as.numeric(df[[cfg$p_col]])
-    if (isTRUE(cfg$neglog10_p)) {
-        p <- 10^(-p)
-    }
-
     out <- df %>%
+        mutate(
+            p = if (isTRUE(cfg$neglog10_p)) 10^(-as.numeric(p)) else as.numeric(p)
+        ) %>%
         transmute(
             SNP = SNPid,
-            position_hg38 = as.integer(.data[[cfg$pos_col]]),
-            A1 = .data[[cfg$ea_col]],
-            A2 = .data[[cfg$oa_col]],
+            position_hg38 = as.integer(pos),
+            A1 = ea,
+            A2 = oa,
             A1_freq = ifelse(flipped, 1 - .raw_eaf, .raw_eaf),
-            beta = as.numeric(.data[[cfg$effect_col]]),
-            se = as.numeric(.data[[cfg$se_col]]),
+            beta = as.numeric(beta),
+            se = as.numeric(se),
             p = p,
             n = cfg$n
         ) %>%

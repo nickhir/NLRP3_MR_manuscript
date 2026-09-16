@@ -62,9 +62,9 @@ if (startsWith(tempdir(), "/tmp")) {
 
 ## ---- reading summary statistics ----------------------------------------------
 
-# Stream a file regardless of compression. Used to pipe into awk so that the
-# region filter happens before anything reaches R - the neutrophil file is 2 GB
-# gzipped and reading it whole is pointless.
+# Stream a file regardless of compression, for the readers that still pipe
+# through awk: lookup_at() below, and analysis/07a, 07b and 12. read_region()
+# no longer needs it.
 reader_cmd <- function(path) {
     # .bgzip / .bgz are the Zoodsma metabolite releases: bgzip output, which is
     # gzip-compatible, so zcat reads them. Without this they fall through to
@@ -102,67 +102,58 @@ col_index <- function(header, name, path) {
     idx
 }
 
-# Read one chromosome-1 window out of a summary-statistics file.
-read_region <- function(
-    path,
-    chr_col,
-    pos_col,
-    chr,
-    start,
-    end,
-    sep = "tab",
-    extra_filter = NULL
-) {
-    # `chr` is required, not defaulted to 1. The silent chromosome assumption
-    # this replaces is what made the function unusable at the chr2 IL1RN locus
-    # and forced analysis/08 to carry a private copy. Accepts 2L, "2" or "chr2".
+# Read one chromosome window out of a summary-statistics file, given its
+# registry entry from config.R. Column names are standardised on the way in -
+# chrom, pos, ea, oa, beta, se, eaf, p, plus rsid, n, gene, ci_lower and
+# ci_upper wherever the entry names them - so every caller downstream works in
+# plain dplyr instead of df[[cfg$chr_col]]. Accepts 2L, "2" or "chr2" for `chr`.
+read_region <- function(cfg, chr, start, end) {
     chr <- sub("^chr", "", as.character(chr))
 
-    header <- header_of(path, sep)
-    ci <- col_index(header, chr_col, path)
-    pi <- col_index(header, pos_col, path)
-
-    region <- sprintf(
-        '(($%d=="%s" || $%d=="chr%s") && $%d>=%d && $%d<=%d)',
-        ci,
-        chr,
-        ci,
-        chr,
-        pi,
-        start,
-        pi,
-        end
+    # c() drops the NULL entries, so a config without eaf_col simply yields no
+    # eaf column and nothing asks fread for one.
+    cols <- c(
+        chrom = cfg$chr_col,
+        pos = cfg$pos_col,
+        ea = cfg$ea_col,
+        oa = cfg$oa_col,
+        beta = cfg$effect_col,
+        se = cfg$se_col,
+        eaf = cfg$eaf_col,
+        p = cfg$p_col,
+        rsid = cfg$rsid_col,
+        n = cfg$n_col,
+        gene = cfg$gene_col,
+        ci_lower = cfg$ci_lower_col,
+        ci_upper = cfg$ci_upper_col
     )
-    if (!is.null(extra_filter)) {
-        region <- paste(extra_filter, "&&", region)
-    }
 
-    awk <- if (sep == "tab") {
-        sprintf("awk -F'\\t' 'NR==1 || %s'", region)
-    } else {
-        sprintf("awk 'BEGIN{OFS=\"\\t\"} NR==1 || %s {$1=$1; print}'", region)
-    }
-
-    df <- data.table::fread(
-        cmd = paste(reader_cmd(path), "|", awk),
+    raw <- data.table::fread(
+        cfg$file,
+        # One registry entry - CARDIOMETABOLIC$BMI - is space-delimited.
+        sep = if (identical(cfg$sep, "whitespace")) " " else "\t",
+        select = unname(cols),
+        # "1" and "chr1" both occur; comparing as text works for either.
+        colClasses = list(character = cfg$chr_col),
         data.table = FALSE,
         showProgress = FALSE
     )
 
-    # fread can mangle a leading '#' in the first column name; restore the true
-    # header so lookups by name always work.
-    if (ncol(df) == length(header)) {
-        names(df) <- header
+    df <- raw |>
+        dplyr::select(dplyr::all_of(cols)) |>
+        dplyr::filter(
+            chrom %in% c(chr, paste0("chr", chr)),
+            pos >= start,
+            pos <= end
+        )
+    if (!is.null(cfg$gene)) {
+        df <- dplyr::filter(df, gene == cfg$gene)
     }
 
-    # Some releases - the INTERVAL eQTL files among them - carry unnamed
-    # trailing columns. Name them so downstream lookups never hit a "" name.
-    nm <- names(df)
-    blank <- is.na(nm) | nm == ""
-    if (any(blank)) {
-        nm[blank] <- paste0("unnamed", seq_len(sum(blank)))
-        names(df) <- nm
-    }
+    # The whole-file read is the largest object any step holds. Drop it here
+    # rather than leaving it for the next iteration of a caller's loop.
+    rm(raw)
+    gc(verbose = FALSE, full = TRUE)
     df
 }
 
@@ -227,43 +218,41 @@ se_from_p <- function(beta, p) {
 # Put a regional dataset on the project's ASCII-sorted variant IDs
 # (CHR_POS_A1_A2 with A1 < A2) and flip beta onto A1.
 harmonise_region <- function(df, cfg, chr, pos_map = NULL) {
-    pos_col <- cfg$pos_col
-
-    std <- df
-    std$.pos <- as.integer(std[[pos_col]])
-    std$.ea <- toupper(std[[cfg$ea_col]])
-    std$.oa <- toupper(std[[cfg$oa_col]])
-    std$.eff <- as.numeric(std[[cfg$effect_col]])
-
+    # read_region() has already standardised the column names; cfg is still
+    # needed for effect_type, se_source, neglog10_p and build.
+    std <- dplyr::mutate(
+        df,
+        pos = as.integer(pos),
+        ea = toupper(ea),
+        oa = toupper(oa),
+        beta = as.numeric(beta)
+    )
     if (identical(cfg$effect_type, "OR")) {
-        std$.eff <- log(std$.eff)
+        std$beta <- log(std$beta)
     }
 
-    std$.se <- switch(
+    std$se <- switch(
         if (is.null(cfg$se_source)) "column" else cfg$se_source,
-        column = as.numeric(std[[cfg$se_col]]),
-        ci = se_from_ci(
-            as.numeric(std[[cfg$ci_lower_col]]),
-            as.numeric(std[[cfg$ci_upper_col]])
-        ),
-        p = se_from_p(std$.eff, as.numeric(std[[cfg$p_col]]))
+        column = as.numeric(std$se),
+        ci = se_from_ci(as.numeric(std$ci_lower), as.numeric(std$ci_upper)),
+        p = se_from_p(std$beta, as.numeric(std$p))
     )
 
-    std$.p <- if (is.null(cfg$p_col)) {
+    std$p <- if (is.null(cfg$p_col)) {
         NA_real_
     } else {
-        raw <- as.numeric(std[[cfg$p_col]])
+        raw <- as.numeric(std$p)
         if (isTRUE(cfg$neglog10_p)) 10^(-raw) else raw
     }
 
-    std <- std[!is.na(std$.eff) & !is.na(std$.se) & std$.se > 0, , drop = FALSE]
-    std <- std[
-        std$.ea %in%
-            c("A", "C", "G", "T") &
-            std$.oa %in% c("A", "C", "G", "T"),
-        ,
-        drop = FALSE
-    ]
+    std <- dplyr::filter(
+        std,
+        !is.na(beta),
+        !is.na(se),
+        se > 0,
+        ea %in% c("A", "C", "G", "T"),
+        oa %in% c("A", "C", "G", "T")
+    )
     if (nrow(std) == 0) {
         return(NULL)
     }
@@ -273,28 +262,26 @@ harmonise_region <- function(df, cfg, chr, pos_map = NULL) {
         if (is.null(pos_map)) {
             stop("a GRCh37 input needs pos_map")
         }
-        m <- match(std$.pos, pos_map$pos_hg19)
+        m <- match(std$pos, pos_map$pos_hg19)
         std <- std[!is.na(m), , drop = FALSE]
-        std$.pos38 <- pos_map$pos_hg38[m[!is.na(m)]]
-    } else {
-        std$.pos38 <- std$.pos
+        std$pos <- pos_map$pos_hg38[m[!is.na(m)]]
     }
     if (nrow(std) == 0) {
         return(NULL)
     }
 
-    A1 <- pmin(std$.ea, std$.oa)
-    A2 <- pmax(std$.ea, std$.oa)
+    A1 <- pmin(std$ea, std$oa)
+    A2 <- pmax(std$ea, std$oa)
 
     tibble::tibble(
-        SNPid = paste(chr, std$.pos38, A1, A2, sep = "_"),
+        SNPid = paste(chr, std$pos, A1, A2, sep = "_"),
         chrom = chr,
-        pos = std$.pos38,
+        pos = std$pos,
         A1 = A1,
         A2 = A2,
-        beta = ifelse(std$.ea == A1, std$.eff, -std$.eff),
-        se = std$.se,
-        p = std$.p
+        beta = ifelse(std$ea == A1, std$beta, -std$beta),
+        se = std$se,
+        p = std$p
     ) |>
         dplyr::distinct(SNPid, .keep_all = TRUE)
 }

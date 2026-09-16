@@ -51,26 +51,23 @@ system2(plink2_bin, c("--bfile", ld_panel, "--chr", CHR,
 
 prepare_readout <- function(key, panel_ids = NULL) {
     cfg <- READOUTS[[key]]
-    df <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
-                      CHR, INSTRUMENT_START, INSTRUMENT_END,
-                      extra_filter = cfg$extra_filter)
-    df$.chr  <- sub("^chr", "", as.character(df[[cfg$chr_col]]))
-    df$SNPid <- create_SNPid_vectorized(df, chr = ".chr", pos = cfg$pos_col,
-                                        other_allele = cfg$oa_col,
-                                        effect_allele = cfg$ea_col)
+    df <- read_region(cfg, CHR, INSTRUMENT_START, INSTRUMENT_END)
+    df$.chr  <- sub("^chr", "", as.character(df$chrom))
+    df$SNPid <- create_SNPid_vectorized(df, chr = ".chr", pos = "pos",
+                                        other_allele = "oa",
+                                        effect_allele = "ea")
     df <- df %>% filter(!grepl("D|I", SNPid))
-    df$.raw_eaf <- if (is.null(cfg$eaf_col)) NA_real_ else as.numeric(df[[cfg$eaf_col]])
-    df <- align_ASCII_sort(df, effect_allele = cfg$ea_col, other_allele = cfg$oa_col,
-                           beta = cfg$effect_col, ld_reference = NULL, status = TRUE)
-    p <- as.numeric(df[[cfg$p_col]])
-    if (isTRUE(cfg$neglog10_p)) p <- 10^(-p)
+    df$.raw_eaf <- if (is.null(cfg$eaf_col)) NA_real_ else as.numeric(df$eaf)
+    df <- align_ASCII_sort(df, effect_allele = "ea", other_allele = "oa",
+                           beta = "beta", ld_reference = NULL, status = TRUE)
     out <- df %>%
+        mutate(p = if (isTRUE(cfg$neglog10_p)) 10^(-as.numeric(p)) else as.numeric(p)) %>%
         transmute(SNP = SNPid,
-                  position_hg38 = as.integer(.data[[cfg$pos_col]]),
-                  A1 = .data[[cfg$ea_col]], A2 = .data[[cfg$oa_col]],
+                  position_hg38 = as.integer(pos),
+                  A1 = ea, A2 = oa,
                   A1_freq = ifelse(flipped, 1 - .raw_eaf, .raw_eaf),
-                  beta = as.numeric(.data[[cfg$effect_col]]),
-                  se = as.numeric(.data[[cfg$se_col]]), p = p, n = cfg$n) %>%
+                  beta = as.numeric(beta),
+                  se = as.numeric(se), p = p, n = cfg$n) %>%
         filter(!is.na(beta), !is.na(se), se > 0, !is.na(p)) %>%
         distinct(SNP, .keep_all = TRUE)
     if (!is.null(panel_ids)) out <- out %>% filter(SNP %in% panel_ids)
@@ -237,25 +234,20 @@ select_instruments <- function(clump_r2) {
 message("Reading the CAD studies over chr", CHR, ":", CAD_START, "-", CAD_END, " ...")
 
 cad_raw <- list(
-    "Aragam et al." = read_region(file.path(dataset_dir, "coronary_artery_disease_aragam_GCST90132314.h.tsv.gz"),
-                                  "chromosome", "base_pair_location",
-                                  CHR, CAD_START, CAD_END) %>%
-        transmute(join_pos = as.integer(base_pair_location),
-                  ea = toupper(effect_allele), oa = toupper(other_allele),
-                  b = as.numeric(beta), se = as.numeric(standard_error)),
-    # MVP reports an odds ratio with a CI; standard_error is NA
-    "MVP" = read_region(file.path(dataset_dir, "coronary_atherosclerosis_mvp_GCST90475936.h.tsv.gz"),
-                        "chromosome", "base_pair_location",
-                        CHR, CAD_START, CAD_END) %>%
-        transmute(join_pos = as.integer(base_pair_location),
-                  ea = toupper(effect_allele), oa = toupper(other_allele),
-                  b  = log(as.numeric(odds_ratio)),
-                  se = (log(as.numeric(ci_upper)) - log(as.numeric(ci_lower))) / (2 * qnorm(0.975))),
-    "FinnGen" = read_region(file.path(dataset_dir, "coronary_atherosclerosis_finngen_R12.gz"),
-                            "#chrom", "pos", CHR, CAD_START, CAD_END) %>%
+    "Aragam et al." = read_region(CAD_STUDIES$aragam, CHR, CAD_START, CAD_END) %>%
         transmute(join_pos = as.integer(pos),
-                  ea = toupper(alt), oa = toupper(ref),
-                  b = as.numeric(beta), se = as.numeric(sebeta)),
+                  ea = toupper(ea), oa = toupper(oa),
+                  b = as.numeric(beta), se = as.numeric(se)),
+    # MVP reports an odds ratio with a CI; standard_error is NA
+    "MVP" = read_region(CAD_STUDIES$mvp, CHR, CAD_START, CAD_END) %>%
+        transmute(join_pos = as.integer(pos),
+                  ea = toupper(ea), oa = toupper(oa),
+                  b  = log(as.numeric(beta)),
+                  se = (log(as.numeric(ci_upper)) - log(as.numeric(ci_lower))) / (2 * qnorm(0.975))),
+    "FinnGen" = read_region(CAD_STUDIES$finngen, CHR, CAD_START, CAD_END) %>%
+        transmute(join_pos = as.integer(pos),
+                  ea = toupper(ea), oa = toupper(oa),
+                  b = as.numeric(beta), se = as.numeric(se)),
     # Long format, already subset to the published eight. MarkerID is
     # chr:pos_OTHER/EFFECT, so the allele after the slash is what BETA refers to.
     "All of Us" = read_tsv(file.path(dataset_dir, "coronary_atherosclerosis_allofus_CV_404_2.tsv"),
@@ -427,11 +419,9 @@ n_from_map <- sum(!is.na(ann$rsid))
 # analysis/08_il1rn_positive_control.R uses.
 if (any(is.na(ann$rsid))) {
     fallback <- bind_rows(lapply(
-        list(list(f = READOUTS$Neutrophil_count$file, chr = "hm_chrom", pos = "hm_pos", id = "hm_rsid"),
-             list(f = READOUTS$CRP$file,              chr = "hm_chrom", pos = "hm_pos", id = "hm_rsid"),
-             list(f = READOUTS$GlycA$file, chr = "chromosome", pos = "base_pair_location", id = "rsid")),
-        function(cfg) read_region(cfg$f, cfg$chr, cfg$pos, CHR, INSTRUMENT_START, INSTRUMENT_END) %>%
-            transmute(pos_hg38 = as.integer(.data[[cfg$pos]]), rsid2 = as.character(.data[[cfg$id]]))
+        READOUTS[c("Neutrophil_count", "CRP", "GlycA")],
+        function(cfg) read_region(cfg, CHR, INSTRUMENT_START, INSTRUMENT_END) %>%
+            transmute(pos_hg38 = as.integer(pos), rsid2 = as.character(rsid))
     )) %>% filter(!is.na(rsid2), grepl("^rs", rsid2)) %>% distinct(pos_hg38, .keep_all = TRUE)
     ann <- ann %>%
         mutate(pos_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2L))) %>%

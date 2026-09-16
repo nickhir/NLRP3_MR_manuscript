@@ -35,9 +35,7 @@ proxy_mr <- lapply(PROXIES, function(k) {
     cfg <- READOUTS[[k]]
     message(sprintf("  %s ...", cfg$label))
 
-    outcome <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
-                           CHR, LOCUS_START, LOCUS_END,
-                           extra_filter = cfg$extra_filter) |>
+    outcome <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
         harmonise_region(cfg, CHR) |>
         filter(SNPid %in% instruments)
 
