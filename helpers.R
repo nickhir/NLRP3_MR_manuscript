@@ -128,18 +128,29 @@ read_region <- function(cfg, chr, start, end) {
         ci_upper = cfg$ci_upper_col
     )
 
+    # fread does not stream a .gz: data.table decompresses the whole file into
+    # TMPDIR first, so a 2 GB gzipped input needs several GB of scratch for the
+    # duration of the call (unlinked on exit, so it does not accumulate across
+    # a loop). That is why the project's .Renviron points TMPDIR at RDS rather
+    # than /tmp, which is a small shared tmpfs on a compute node.
     raw <- data.table::fread(
         cfg$file,
         # One registry entry - CARDIOMETABOLIC$BMI - is space-delimited.
         sep = if (identical(cfg$sep, "whitespace")) " " else "\t",
         select = unname(cols),
-        # "1" and "chr1" both occur; comparing as text works for either.
-        colClasses = list(character = cfg$chr_col),
+        # chrom as text: "1" and "chr1" both occur, and comparing as text works
+        # for either. pos as numeric: fread types columns from the whole file,
+        # not from the window, so one stray "." or "NA" position anywhere in a
+        # genome-wide file would otherwise make the window comparison below a
+        # string comparison. awk compared numerically; so must this.
+        colClasses = list(character = cfg$chr_col, numeric = cfg$pos_col),
         data.table = FALSE,
         showProgress = FALSE
     )
 
     df <- raw |>
+        # all_of(), not any_of()/select(): a mistyped *_col must be an error
+        # here. fread(select=) only warns about a column it cannot find.
         dplyr::select(dplyr::all_of(cols)) |>
         dplyr::filter(
             chrom %in% c(chr, paste0("chr", chr)),
@@ -149,6 +160,13 @@ read_region <- function(cfg, chr, start, end) {
     if (!is.null(cfg$gene)) {
         df <- dplyr::filter(df, gene == cfg$gene)
     }
+
+    # Back to integer once the window comparison is done. A double position is
+    # pasted into the variant ID by create_SNPid_vectorized(), and R renders a
+    # double in whichever of fixed or scientific notation is shorter:
+    # as.character(113000000) is "1.13e+08", and chr2:113,000,000 sits inside
+    # step 08's window. Assembly coordinates are integers well under 2^31.
+    df$pos <- as.integer(df$pos)
 
     # The whole-file read is the largest object any step holds. Drop it here
     # rather than leaving it for the next iteration of a caller's loop.
