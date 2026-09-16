@@ -293,7 +293,7 @@ cp $REPO/results/06_mr_cardiometabolic/cardiometabolic_mr.tsv /tmp/fake/results/
 /rds/user/nh608/hpc-work/software/micromamba/envs/limix_ieqtl/bin/python3 - <<'EOF'
 p = "/tmp/fake/results/06_mr_cardiometabolic/cardiometabolic_mr.tsv"
 lines = open(p).read().split("\n")
-parts = lines[1].split("\t"); parts[3] = str(float(parts[3]) + 0.05)
+parts = lines[1].split("\t"); parts[4] = str(float(parts[4]) + 0.05)  # col 4 = estimate
 lines[1] = "\t".join(parts)
 open(p, "w").write("\n".join(lines))
 EOF
