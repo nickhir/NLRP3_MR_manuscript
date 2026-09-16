@@ -196,7 +196,7 @@ run_one <- function(i) {
     row   <- assays[i, ]
     label <- row$protein_id
 
-    out <- tryCatch({
+    out <- {
         raw <- read_assay(row$path)
         if (is.null(raw) || nrow(raw) == 0) {
             return(list(res = NULL, fail = tibble(
@@ -264,10 +264,7 @@ run_one <- function(i) {
                  mutate(protein_id = label, gene_name = row$gene_name,
                         .before = 1),
              fail = NULL)
-    }, error = function(e) {
-        list(res = NULL, fail = tibble(protein_id = label,
-                                       reason = conditionMessage(e)))
-    })
+    }
 
     out
 }
