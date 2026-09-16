@@ -167,8 +167,8 @@ Per stage: syntax check (`parse` for R, `py_compile` for python) -> full
 31-script run -> comparison -> commit on pass.
 
 A numeric comparator is required and does not exist yet. For every TSV it
-matches rows by key, and per numeric column reports `max abs diff` and Pearson
-`r`, so a regression is reported as "column X of table Y moved by Z" rather
+compares rows positionally in file order — a reordering is itself a change worth
+surfacing — and per numeric column reports `max abs diff` and Pearson `r`, so a regression is reported as "column X of table Y moved by Z" rather
 than "differs". Figures are rasterised at 150 dpi and compared pixel-wise.
 
 Resources: 5 cores (~34 GB) per job, at most 6 concurrent, one file in memory at
