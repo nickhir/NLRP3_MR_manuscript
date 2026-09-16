@@ -1071,11 +1071,29 @@ import matplotlib.pyplot as plt
 
 `figures/supp/leave_one_out_forest.py` already inserts `figures/` on `sys.path` for `forest_ticks`, so `from style import apply_style` resolves there too.
 
-- [ ] **Step 3: Do the same for the R figures**
+- [ ] **Step 3: Remove the forbidden constructs the R figures still carry**
+
+Task 3's file list did not cover `figures/*.R`, so 8 constructs survive there and the Global
+Constraints forbid them repo-wide. Delete them:
+
+```bash
+cd /rds/user/nh608/hpc-work/NLRP3_MR_manuscript
+grep -nE "stopifnot|tryCatch|match\.arg|suppressWarnings" figures/*.R
+```
+
+Expected: 3 in `fig02b_instrument_forest.R`, 3 in `fig02a_locuszoom.R`, 2 in
+`fig04c_il1rn_instrument_forest.R`. Same rules as Task 3: delete the whole call, keep
+`dir.create(showWarnings = FALSE)`.
+
+Also clear the dead residue Task 3's review noted, now that its guards are gone:
+`drop` in `figures/fig03e_mediation_waterfall.py`, and `missing` / `off_scale` in
+`figures/fig05_indications_forest.py` — variables computed only to feed a deleted guard.
+
+- [ ] **Step 4: Do the same for the R figures**
 
 `fig02a_locuszoom.R`, `fig02b_instrument_forest.R`, `fig04c_il1rn_instrument_forest.R` and `fig04e_ora_dotplot.R` each define an identical `cairo_pdf_font`. Move it to `helpers.R` (which they already source) and delete the four copies.
 
-- [ ] **Step 4: Confirm no layout constant moved**
+- [ ] **Step 5: Confirm no layout constant moved**
 
 ```bash
 cd /rds/user/nh608/hpc-work/NLRP3_MR_manuscript
@@ -1085,13 +1103,13 @@ git diff | grep -E "^[+-]" | grep -E "FIG_W_MM|FIG_H_MM|X_LO|X_HI|ROW_SPACING|Y_
 
 Expected: `no layout constants touched`.
 
-- [ ] **Step 5: Syntax check, full run, compare**
+- [ ] **Step 6: Syntax check, full run, compare**
 
 As Task 3 Steps 4 and 6. The figure comparison is the real test here — a font-ordering mistake shows as thousands of differing pixels.
 
 Expected: `no failures`, `VERDICT: PASS`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /rds/user/nh608/hpc-work/NLRP3_MR_manuscript
