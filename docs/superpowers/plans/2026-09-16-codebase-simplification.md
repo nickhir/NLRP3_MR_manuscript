@@ -736,7 +736,9 @@ read_region <- function(cfg, chr, start, end) {
               eaf = cfg$eaf_col, p = cfg$p_col, rsid = cfg$rsid_col,
               gene = cfg$gene_col, ci_lower = cfg$ci_lower_col,
               ci_upper = cfg$ci_upper_col)
-    df <- fread(cfg$file, select = unname(cols), colClasses = list(character = cfg$chr_col),
+    sep <- if (identical(cfg$sep, "whitespace")) " " else "\t"
+    df <- fread(cfg$file, select = unname(cols), sep = sep,
+                colClasses = list(character = cfg$chr_col),
                 data.table = FALSE) |>
         select(all_of(cols)) |>
         filter(chrom %in% c(as.character(chr), paste0("chr", chr)),
@@ -744,6 +746,10 @@ read_region <- function(cfg, chr, start, end) {
     if (!is.null(cfg$gene)) df <- filter(df, gene == cfg$gene)
     df
 }
+
+`sep` stays because it is load-bearing: `bmi_GCST009004.NLRP3region.tsv.gz` is genuinely
+space-separated (verified on raw bytes) and is the one entry in `config.R` carrying
+`sep = "whitespace"`. Dropping it would misparse that file into a single column.
 ```
 
 `cols` drops `NULL` entries automatically because `c()` on a list with `NULL` omits them, so a config without `eaf_col` simply yields no `eaf` column.
