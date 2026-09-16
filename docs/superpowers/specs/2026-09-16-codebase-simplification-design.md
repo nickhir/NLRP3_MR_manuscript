@@ -69,23 +69,25 @@ Delete all 90 `stopifnot`, 6 `tryCatch`, 13 `if (!file.exists) stop()`,
 43 python guards. Keep `dir.create(showWarnings = FALSE)` — those create output
 directories. Cannot change a number.
 
-### Stage 2 — helpers.R: 31 functions -> 16
+### Stage 2 — helpers.R: 31 functions -> 18
 
 Inline the 9 single-caller helpers into their caller; fold the 3
 helpers-internal functions into the function that calls them. Delete the 12
 frozen parameters. Cut signatures: `ld_clump_local` 9 args -> `(variants, r2, kb)`,
 `get_high_ld_snps` 9 -> `(leads, r2, kb)`.
 
-Removed, 15 in total: the 9 single-caller helpers, the 3 helpers-internal
-helpers, and — once stage 3 lands — `reader_cmd`, `header_of` and `col_index`,
-which exist only to build awk commands.
+Removed, 13 in total: 7 single-caller helpers, the 3 helpers-internal helpers,
+and — once stage 3 lands — `reader_cmd`, `header_of` and `col_index`, which
+exist only to build awk commands. `se_from_ci` and `se_from_p` look
+single-caller but are called by `harmonise_region`, so they stay.
 
-Survivors, 16: `read_region`, `harmonise_region`, `load_instruments`,
+Survivors, 18: `read_region`, `harmonise_region`, `load_instruments`,
 `interval_ld_matrix`, `run_mr`, `ld_clump_local`, `get_high_ld_snps`,
-`to_common`, `lookup_at`, `calculate_maf`, `verify_build`, `to_panel_id`,
-`from_panel_id`, `nlrp3_scratch`, `scratch_file`, `scratch_path`.
+`to_common`, `lookup_at`, `calculate_maf`, `verify_build`, `se_from_ci`,
+`se_from_p`, `to_panel_id`, `from_panel_id`, `nlrp3_scratch`, `scratch_file`,
+`scratch_path`.
 
-Target: ~550 lines, counting the shrinkage stage 3 brings to `read_region`
+Target: ~600 lines, counting the shrinkage stage 3 brings to `read_region`
 (64 -> ~10), `harmonise_region` (74 -> ~30) and `to_common` (78 -> ~40).
 
 ### Stage 3 — awk -> fread, and rename-on-read
@@ -113,7 +115,8 @@ uncompressed) near 5 GB rather than 15-20 GB. Scripts hold one file at a time.
 Consequences:
 - `extra_filter` (an awk string in config) becomes `gene_col = "phenotype_id"`
   plus `gene = NLRP3_ENSG` / `IL1RN_ENSG`.
-- `harmonise_region` loses its `cfg` argument and its 14 `.data[[...]]` uses.
+- `harmonise_region` keeps `cfg` — it still needs `effect_type`, `se_source`,
+  `neglog10_p` and `build` — but loses all 14 of its `.data[[cfg$*_col]]` uses.
 - ~144 column-indirection sites disappear across the tree.
 - `read_significant` -> `fread` + `filter`; `lookup_at` -> `fread` +
   `inner_join`; `thin_genome` -> `fread` + `group_by(bin) |> slice(1)`.
@@ -180,8 +183,9 @@ the measured maximum at stage 6.
 stage is a `git revert`.
 
 `.gitignore` excludes two files this work edits — `figures/fig04a_plof_violins.py`
-(stage 5) and `README.md` (stage 4). Both get a directory backup under
-`trashtmp/` since git cannot restore them.
+(stage 5) and `README.md` (stage 4). No special handling: `fig04a` produces
+Fig 4A, one of the 18 figures the pixel comparison checks every stage, so a
+regression there is caught regardless; `README.md` is prose.
 
 ## Out of scope
 
