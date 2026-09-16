@@ -27,7 +27,7 @@ Excluded from comparison: the `generated` timestamp in
 | | lines |
 |---|---|
 | `config.R` | 894 |
-| `helpers.R` | 1,479 (31 functions) |
+| `helpers.R` | 1,479 (36 functions) |
 | `analysis/*.R` (16) | 4,475 |
 | `figures/*` (15) | 3,504 (1,806 python code lines) |
 
@@ -69,19 +69,19 @@ Delete all 90 `stopifnot`, 6 `tryCatch`, 13 `if (!file.exists) stop()`,
 43 python guards. Keep `dir.create(showWarnings = FALSE)` — those create output
 directories. Cannot change a number.
 
-### Stage 2 — helpers.R: 31 functions -> 18
+### Stage 2 — helpers.R: 36 functions -> 22
 
 Inline the 9 single-caller helpers into their caller; fold the 3
 helpers-internal functions into the function that calls them. Delete the 12
 frozen parameters. Cut signatures: `ld_clump_local` 9 args -> `(variants, r2, kb)`,
 `get_high_ld_snps` 9 -> `(leads, r2, kb)`.
 
-Removed, 13 in total: 7 single-caller helpers, the 3 helpers-internal helpers,
+Removed, 14 in total: 7 single-caller helpers, the 3 helpers-internal helpers,
 and — once stage 3 lands — `reader_cmd`, `header_of` and `col_index`, which
 exist only to build awk commands. `se_from_ci` and `se_from_p` look
 single-caller but are called by `harmonise_region`, so they stay.
 
-Survivors, 18: `read_region`, `harmonise_region`, `load_instruments`,
+Survivors, 22: `read_region`, `harmonise_region`, `load_instruments`,
 `interval_ld_matrix`, `run_mr`, `ld_clump_local`, `get_high_ld_snps`,
 `to_common`, `lookup_at`, `calculate_maf`, `verify_build`, `se_from_ci`,
 `se_from_p`, `to_panel_id`, `from_panel_id`, `nlrp3_scratch`, `scratch_file`,

@@ -515,7 +515,7 @@ Verified: 31/31 scripts OK, figures pixel-identical, tables within tolerance."
 
 ---
 
-## Task 4: Stage 2 — helpers.R, 31 functions to 18
+## Task 4: Stage 2 — helpers.R, 36 functions to 22
 
 **Files:**
 - Modify: `helpers.R` (1,479 lines -> ~600)
