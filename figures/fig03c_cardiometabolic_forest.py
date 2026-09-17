@@ -44,9 +44,6 @@ def load():
                        float(r["ci_upper"]), float(r["p"]))
             d["label"] = r["outcome"]
             d["n"] = r["n_label"]
-    wanted = [t for _, ts in GROUPS for t in ts]
-    missing = [t for t in wanted if t not in rows]
-    incomplete = [t for t in wanted if not {"ivw", "wm"} <= set(rows[t])]
     return rows
 
 
@@ -121,7 +118,6 @@ for kind, key, yc in layout:
 X_CLIP = 0.30
 
 lo_all = min(min(ROWS[k][s][1] for s in ("ivw", "wm")) for k, _ in DATA)
-hi_all = max(max(ROWS[k][s][2] for s in ("ivw", "wm")) for k, _ in DATA)
 
 # Left edge: the data plus a margin, but never so tight that the -0.2 tick falls
 # outside the view and silently disappears.

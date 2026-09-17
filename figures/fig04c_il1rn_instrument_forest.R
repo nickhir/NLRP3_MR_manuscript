@@ -26,11 +26,6 @@ in_file      <- file.path(analysis_dir, "results", "08_il1rn_positive_control",
 figures_dir  <- file.path(analysis_dir, "figures_out")
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
-if (!file.exists(in_file)) {
-    stop("missing input: ", in_file,
-         "\nRun analysis/08_il1rn_positive_control.R first.")
-}
-
 effects <- fread(in_file, data.table = FALSE)
 
 READOUTS <- c("IL1RN expression", "CRP concentration", "GlycA concentration",

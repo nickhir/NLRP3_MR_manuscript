@@ -46,9 +46,6 @@ own <- lapply(ORDER, function(k)
     intersect(design$SNPid, ins$SNPid[ins$mediator == k]))
 names(own) <- ORDER
 
-# Disjoint from the cis instruments, so Cov(alpha, beta) = 0 still holds here.
-ex_snps <- load_instruments(negate = TRUE)$SNP
-
 
 ## ---- 3. one MVMR fitter, used for every step ---------------------------------------
 # Identical to 07c's: weighted least squares with no intercept, then the

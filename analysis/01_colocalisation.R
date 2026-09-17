@@ -15,7 +15,6 @@ source(here::here("config.R"))
 source(here::here("helpers.R"))
 
 out_dir  <- step_dir("01_colocalisation")
-exposure <- load_instruments()
 
 
 ## ---- 1. NLRP3 expression over the locus --------------------------------------

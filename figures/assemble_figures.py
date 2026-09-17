@@ -62,29 +62,8 @@ FIGURES = {
     ],
 }
 
-# 4B (gain-of-function carriers) needs individual-level UK Biobank exome data,
-# so no script here produces it. It is supplied as a finished PDF and must be
-# placed in figures_out/ beside the generated panels.
-SUPPLIED = {"Fig4B_gof_carriers"}
-
 # Drawn illustrations, kept in figures/assets/. No script can make these.
 ASSETS = {"Fig3D_mediation_diagram"}
-
-# Which script writes which panel, so a missing file says what to run.
-PRODUCED_BY = {
-    "Fig2A_NLRP3_locuszoom": "figures/fig02a_locuszoom.R",
-    "Fig2B_NLRP3_instrument_forest": "figures/fig02b_instrument_forest.R",
-    "Fig2C_validation_forest": "figures/fig02c_validation_forest.py",
-    "Fig3A_cad_forest": "figures/fig03a_cad_forest.py",
-    "Fig3B_imaging_forest": "figures/fig03b_imaging_forest.py",
-    "Fig3C_cardiometabolic_forest": "figures/fig03c_cardiometabolic_forest.py",
-    "Fig3E_mediation_waterfall": "figures/fig03e_mediation_waterfall.py",
-    "Fig4A_plof_violins": "figures/fig04a_plof_violins.py",
-    "Fig4C_il1rn_instrument_forest": "figures/fig04c_il1rn_instrument_forest.R",
-    "Fig4D_il1rn_mr_forest": "figures/fig04d_il1rn_mr_forest.py",
-    "Fig4E_ora_dotplot": "figures/fig04e_ora_dotplot.R",
-    "Fig4F_sensitivity": "figures/fig04f_sensitivity.py",
-}
 
 
 def panel_pdf(stem):
@@ -149,7 +128,6 @@ def build(name, rows):
     # row's cells start wherever the first one happens to end and nothing lines
     # up down the page.
     if st["columns"]:
-        ncells = {len(r) for r in rows}
         col = [max(cell_w(r[j]) for r in rows) for j in range(len(rows[0]))]
         widths = [list(col) for _ in rows]
     else:
@@ -249,7 +227,6 @@ def build(name, rows):
 
 def main():
     wanted = sys.argv[1:] or list(FIGURES)
-    unknown = [w for w in wanted if w not in FIGURES]
     for name in wanted:
         build(name, FIGURES[name])
 

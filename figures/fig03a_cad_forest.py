@@ -16,7 +16,6 @@ import numpy as np
 import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parents[1]
 
 # SIZE AND TYPE. 190 mm wide with 8 pt body text, matching Figure 3B directly
 # beneath it; the sizes are Figure 2C's.
@@ -24,7 +23,6 @@ FS_BODY = 8.0
 FS_HEADER = 8.0
 FS_TICK = 8.0
 FS_XLAB = 7.8
-FS_PANEL = 12.0
 
 # Same red/blue as Figure 2C, so IVW and weighted median read alike across the
 # whole manuscript.

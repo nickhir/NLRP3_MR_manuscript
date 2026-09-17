@@ -113,27 +113,7 @@ PANEL_START <- as.integer(LOCUS_START - 300e3)
 PANEL_END   <- as.integer(LOCUS_END + 300e3)
 
 ## ----helper_readers-----------------------------------------------------------
-# helpers.R::get_high_ld_snps() run through system2() with stderr suppressed,
-# rather than system(). Same plink2 invocation otherwise.
-high_ld_snps_local <- function(index_variants, reference, ld_threshold,
-                               window_kb, plink2 = plink2_bin, threads = 4) {
-    snps_file <- scratch_file(fileext = ".snps")
-    out_file  <- scratch_file()
-    writeLines(index_variants, snps_file)
-
-    system2(plink2, c("--pfile", reference, "--r2-unphased",
-                      "--ld-snp-list", snps_file,
-                      "--ld-window-r2", ld_threshold,
-                      "--ld-window-kb", window_kb,
-                      "--threads", threads,
-                      "--out", out_file), stdout = FALSE, stderr = FALSE)
-
-    vcor <- paste0(out_file, ".vcor")
-    data.table::fread(vcor, data.table = FALSE)
-}
-
-# One readout on the project's ASCII-sorted IDs, beta oriented onto A1. NOTE:
-# align_ASCII_sort()'s `ld_reference` argument is deliberately NOT used.
+# One readout on the project's ASCII-sorted IDs, beta oriented onto A1.
 prepare_readout <- function(path, label, chr_col, pos_col, ea_col, oa_col,
                             beta_col, se_col, p_col, n_value,
                             eaf_col = NULL, rsid_col = NULL,
@@ -155,7 +135,7 @@ prepare_readout <- function(path, label, chr_col, pos_col, ea_col, oa_col,
     df$.rsid    <- if (is.null(rsid_col)) NA_character_ else as.character(df$rsid)
 
     df <- align_ASCII_sort(df, effect_allele = "ea", other_allele = "oa",
-                           beta = "beta", ld_reference = NULL, status = TRUE)
+                           beta = "beta")
 
     out <- df %>%
         transmute(SNP = SNPid,
@@ -276,9 +256,9 @@ for (tn in names(summary_stats)) {
 friends <- lapply(names(clumped), function(tn) {
     lead <- clumped[[tn]]
     if (length(lead) == 0) return(NULL)
-    res <- high_ld_snps_local(lead, reference = ld_reference,
-                              ld_threshold = HIGH_LD_THRESHOLD,
-                              window_kb = HIGH_LD_WINDOW_KB) %>%
+    res <- get_high_ld_snps(lead, reference = ld_reference,
+                            r2 = HIGH_LD_THRESHOLD,
+                            kb = HIGH_LD_WINDOW_KB) %>%
         select(ID_A, ID_B, UNPHASED_R2)
     rbind(res, data.frame(ID_A = lead, ID_B = lead, UNPHASED_R2 = 1))
 })
@@ -345,9 +325,9 @@ need_proxy <- instruments[vapply(instruments, availability, 1L) != 4]
 proxy_log <- tibble(original = character(), replacement = character(),
                     r2 = numeric())
 if (length(need_proxy) > 0) {
-    hl <- high_ld_snps_local(need_proxy, reference = ld_reference,
-                             ld_threshold = PROXY_R2,
-                             window_kb = PROXY_WINDOW_KB)
+    hl <- get_high_ld_snps(need_proxy, reference = ld_reference,
+                           r2 = PROXY_R2,
+                           kb = PROXY_WINDOW_KB)
     if (nrow(hl) > 0) {
         reps <- lapply(unique(hl$ID_A), function(s) {
             cand <- hl %>% filter(ID_A == s) %>% arrange(desc(UNPHASED_R2))

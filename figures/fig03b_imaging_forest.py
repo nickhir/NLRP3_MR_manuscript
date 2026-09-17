@@ -42,9 +42,6 @@ def load():
             rows.setdefault(r["outcome"], {})[slot] = (
                 float(r["estimate"]), float(r["ci_lower"]),
                 float(r["ci_upper"]), float(r["p"]))
-    wanted = [k for k, *_ in SD_BLOCK + OR_BLOCK]
-    missing = [k for k in wanted if k not in rows]
-    incomplete = [k for k in wanted if len(rows[k]) != 2]
     return rows
 
 

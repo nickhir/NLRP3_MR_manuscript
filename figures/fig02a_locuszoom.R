@@ -60,22 +60,13 @@ PANEL_FILES <- c(
     Neutrophil_count = "regional_Neutrophil_count.tsv"
 )
 
-for (f in c(file.path(coloc_dir, PANEL_FILES), paste0(ld_panel, ".bed"), instr_file)) {
-    if (!file.exists(f)) {
-        stop("missing input: ", f,
-             "\nRun analysis/01_colocalisation.R and analysis/02_instrument_table.R first.")
-    }
-}
-
 ## ---- setup -------------------------------------------------------------------
 ah <- AnnotationHub()
 ensDb_v111 <- ah[["AH116291"]]
 
 # NLRP3 gene coordinates (hg38), as config.R states them. Hardcoded rather than
 # sourced: config.R belongs to analysis/, and a figure may not reach for it.
-chr        <- 1
 start_hg38 <- 247416156
-stop_hg38  <- 247449108
 index_snp  <- "1_247438293_C_T"          # rs12239046, the colocalising variant
 
 # LD colours, in the seven-level order gg_scatter bins into: no r2, then the
@@ -156,8 +147,8 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
         return(genetracks)
     }
 
-    # LD on the fly, as the Rmd did - only against the region fileset step 01
-    # leaves in results/, not the 43 GB genome-wide panel.
+    # LD on the fly, as the Rmd did - against ld_panel, the 43 GB genome-wide
+    # INTERVAL panel, not a region-restricted subset.
     locus_data <- add_LD(locus_data,
         reference = ld_panel,
         SNPid_col = "panel_id",

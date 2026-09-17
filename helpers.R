@@ -1,7 +1,9 @@
 ## helpers.R - the shared function library.
 ##
 ## Region readers, INTERVAL LD, harmonisation, instrument loading, joint F/R2,
-## correlated MR and theme_Publication(). Sourced with config.R by analysis/.
+## correlated MR and theme_Publication(). Sourced by the analysis/ steps; most
+## also source config.R, but 09_proteome_mr.R does not, which is why it
+## defines ld_panel and plink2_bin itself.
 
 nlrp3_scratch <- function() {
     d <- getOption("nlrp3.scratch")
@@ -764,16 +766,13 @@ get_high_ld_snps <- function(leads, reference, r2, kb) {
 
 ## This function "aligns" alleles so that they are ASCII sorted.
 ## If it detects a SNPid which is not ASCII sorted, it will correct it and change the sign of the beta
-## Optionally, if you provide an LD reference, it will calculate the allele frequency.
 
 # A1 WILL BE THE EFFECT ALLELE WHICH WILL CORRESPOND TO ALLELE WHICH IS ALPHABETICALLY FIRST
 align_ASCII_sort <- function(
     data,
     effect_allele,
     other_allele,
-    ld_reference = NULL,
-    beta = "beta",
-    status = FALSE
+    beta = "beta"
 ) {
     A1 <- str_split_fixed(data[["SNPid"]], "_", 4)[, 3]
     data[[beta]] <- ifelse(
@@ -782,9 +781,7 @@ align_ASCII_sort <- function(
         data[[beta]] * -1
     )
 
-    if (status) {
-        data$flipped <- ifelse(A1 == data[[effect_allele]], FALSE, TRUE)
-    }
+    data$flipped <- ifelse(A1 == data[[effect_allele]], FALSE, TRUE)
 
     # also switch the alleles
     new_effect_allele <- ifelse(
@@ -800,31 +797,6 @@ align_ASCII_sort <- function(
     data[[effect_allele]] <- new_effect_allele
     data[[other_allele]] <- new_other_allele
 
-    # calculate MAF
-    if (!is.null(ld_reference)) {
-        tmp_maf <- calculate_maf(data[["SNPid"]], reference = ld_reference) %>%
-            arrange(ID) %>%
-            mutate(ALT_FREQS = as.numeric(ALT_FREQS))
-        # now make sure that the  allele frequency correspond to the A1 frequency.
-        # if A1 is not "ALT", then we have to do 1-ALT_freqs
-        A1 <- str_split_fixed(tmp_maf$ID, "_", 4)[, 3]
-        tmp_maf$ALT_FREQS <- ifelse(
-            A1 != tmp_maf$ALT,
-            1 - tmp_maf$ALT_FREQS,
-            tmp_maf$ALT_FREQS
-        )
-
-        # filter out snps that do not occur in our reference dataset
-        data <- data %>%
-            dplyr::filter(SNPid %in% tmp_maf$ID)
-
-        data <- data %>%
-            left_join(
-                .,
-                tmp_maf %>% dplyr::select(A1_freq = ALT_FREQS, ID),
-                by = c("SNPid" = "ID")
-            )
-    }
     return(data)
 }
 
@@ -834,7 +806,6 @@ add_LD <- function(
     locus,
     SNPid_col = "SNPid",
     index_snp = NA,
-    available_snps = NULL,
     ...
 ) {
     # uses plink to quickly calculate LD from a reference panel.
@@ -914,38 +885,6 @@ add_LD <- function(
 
     dataset <- locus[["data"]]
 
-    # this checks if the SNP exists in the reference bim. if not, take SNP with the next lowest P Value
-    if (!is.null(available_snps) & is.na(index_snp)) {
-        # if we have manually specified an index snp dont do this step
-        for (z in 1:nrow(dataset)) {
-            print(z)
-            index_snp <- slice_min(
-                dataset,
-                order_by = !!sym(locus$p),
-                n = z,
-                with_ties = FALSE
-            ) %>%
-                pull(locus$labs)
-            index_snp <- index_snp[z]
-            if (index_snp %in% available_snps) {
-                print(index_snp)
-                break
-            }
-        }
-    }
-
-    index_snp <- ifelse(
-        is.na(index_snp),
-        slice_min(
-            dataset,
-            order_by = !!sym(locus$p),
-            n = 1,
-            with_ties = FALSE
-        ) %>%
-            pull(locus$labs),
-        index_snp
-    )
-
     # calculate LD
     output <- local_ld_calculation(
         index_variant = index_snp,
@@ -991,37 +930,6 @@ create_SNPid_vectorized <- function(
     return(SNPid)
 }
 
-
-calculate_maf <- function(variants, reference) {
-    # Make textfile
-    fn <- scratch_file()
-    write.table(
-        data.frame(variants),
-        file = fn,
-        row.names = F,
-        col.names = F,
-        quote = F
-    )
-
-    fun1 <- paste0(
-        plink2_bin,
-        " --pfile ",
-        reference,
-        " --extract ",
-        fn,
-        " --freq ",
-        " --out ",
-        fn
-    )
-    system(fun1, ignore.stdout = T)
-    res <- data.table::fread(paste0(fn, ".afreq"), header = T)
-}
-
-
-# LIFTOVER_CHAIN_DIR is overridable from config.R.
-if (!exists("LIFTOVER_CHAIN_DIR")) {
-    LIFTOVER_CHAIN_DIR <- "/rds/user/nh608/hpc-work/software/UCSC_liftOver"
-}
 
 ld_clump_local <- function(variants, bfile, r2, kb) {
     # Make textfile

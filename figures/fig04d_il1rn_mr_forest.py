@@ -57,7 +57,6 @@ def load():
             else:
                 d["n"] = []
             d["label"] = DISPLAY.get(key, key)
-    missing = [k for k in [PROTEIN] + DISEASES if k not in rows]
     return rows
 
 

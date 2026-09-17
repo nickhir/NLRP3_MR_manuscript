@@ -15,7 +15,6 @@ from forest_ticks import minor_ticks
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ANALYSIS_DIR = SCRIPT_DIR.parent
-REPO = ANALYSIS_DIR.parent
 
 IN_FILE = ANALYSIS_DIR / "results" / "04_mr_biomarkers" / "mr_biomarkers.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
@@ -58,8 +57,6 @@ def load():
             else:
                 d["n"] = ""
             d["label"] = DISPLAY.get(r["outcome"], r["outcome"])
-    missing = [k for k in PROXIES + CYTOKINES if k not in rows]
-    incomplete = [k for k, v in rows.items() if "ivw" not in v or "wm" not in v]
     return rows
 
 

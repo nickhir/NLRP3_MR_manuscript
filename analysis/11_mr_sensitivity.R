@@ -57,7 +57,7 @@ prepare_readout <- function(key, panel_ids = NULL) {
     df <- df %>% filter(!grepl("D|I", SNPid))
     df$.raw_eaf <- if (is.null(cfg$eaf_col)) NA_real_ else as.numeric(df$eaf)
     df <- align_ASCII_sort(df, effect_allele = "ea", other_allele = "oa",
-                           beta = "beta", ld_reference = NULL, status = TRUE)
+                           beta = "beta")
     out <- df %>%
         mutate(p = if (isTRUE(cfg$neglog10_p)) 10^(-as.numeric(p)) else as.numeric(p)) %>%
         transmute(SNP = SNPid,

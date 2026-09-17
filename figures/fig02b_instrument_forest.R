@@ -28,12 +28,6 @@ aligned_in   <- file.path(instr_dir, "instrument_table_aligned.tsv")
 figures_dir  <- file.path(analysis_dir, "figures_out")
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
-for (f in c(readouts_in, aligned_in)) {
-    if (!file.exists(f)) {
-        stop("missing input: ", f, "\nRun analysis/02_instrument_table.R first.")
-    }
-}
-
 # The eight instruments' rsIDs, hardcoded so this figure depends on nothing but
 # step 02.
 RSIDS <- tibble::tribble(

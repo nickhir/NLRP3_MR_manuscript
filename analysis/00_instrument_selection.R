@@ -91,9 +91,7 @@ prepare_readout <- function(key, panel_ids = NULL) {
         df,
         effect_allele = "ea",
         other_allele = "oa",
-        beta = "beta",
-        ld_reference = NULL,
-        status = TRUE
+        beta = "beta"
     )
 
     out <- df %>%
