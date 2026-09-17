@@ -18,9 +18,7 @@ options(datatable.fread.datatable = FALSE)
 analysis_dir <- here::here()
 
 source(file.path(analysis_dir, "helpers.R"))
-dataset_dir  <- file.path(analysis_dir, "datasets")
-output_dir   <- file.path(analysis_dir, "results", "09_proteome_mr")
-dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+output_dir <- file.path(analysis_dir, "results", "09_proteome_mr")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # The eight cis-NLRP3 instruments and the activity score, selected on the
