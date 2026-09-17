@@ -5,22 +5,16 @@
 # Reads results/11_mr_sensitivity/, writes figures_out/SupFig_leave_one_out.pdf.
 
 import csv
-import os
 import sys
 from math import exp
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
-
 # figures/ is this script's parent, and it is not on sys.path when the
 # script is run from supp/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from style import apply_style
+apply_style()
+import matplotlib.pyplot as plt
 from forest_ticks import minor_ticks
 
 # figures/supp/ is one level deeper than the main panels
@@ -29,22 +23,6 @@ ANALYSIS_DIR = SCRIPT_DIR.parent.parent
 IN_DIR = ANALYSIS_DIR / "results" / "11_mr_sensitivity"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# Same typeface and PDF settings as every other panel - Open Sans semibold,
-# fonttype 42. Helvetica is not installed here; asking for it silently fell
-# back to DejaVu Sans.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), and ExtraBold wins the tie - so
-# fontweight="bold" silently gives ExtraBold.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 FS_BODY, FS_SMALL, FS_TICK, FS_XLAB, FS_GROUP = 8.0, 7.6, 8.0, 7.8, 8.0
 GREY = "#8A8A8A"          # house grey, shared with Figure 4F

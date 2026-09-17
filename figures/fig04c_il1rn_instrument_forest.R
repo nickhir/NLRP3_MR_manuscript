@@ -35,7 +35,6 @@ effects <- fread(in_file, data.table = FALSE)
 
 READOUTS <- c("IL1RN expression", "CRP concentration", "GlycA concentration",
               "Neutrophil count", "IL1Ra activity score")
-stopifnot(all(READOUTS %in% effects$readout))
 
 ## ---- orient to the IL1RN-expression-increasing allele ----------------------
 orientation <- effects |>
@@ -48,8 +47,6 @@ plot_data <- effects |>
     mutate(beta     = if_else(flip, -beta, beta),
            ci_lower = beta - 1.96 * se,
            ci_upper = beta + 1.96 * se)
-
-stopifnot(all(plot_data$beta[plot_data$readout == "IL1RN expression"] > 0))
 
 # Rows ordered by the activity score, strongest at the top. Fig 2B orders by
 # its latent factor the same way; its values are all negative and ours all

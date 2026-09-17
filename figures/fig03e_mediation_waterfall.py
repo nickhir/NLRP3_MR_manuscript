@@ -5,16 +5,12 @@
 # Reads results/07d_mediation_waterfall/, writes figures_out/Fig3E_mediation_waterfall.pdf.
 
 import csv
-import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
+from style import apply_style
+apply_style()
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
 from matplotlib.patches import FancyArrowPatch
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -22,20 +18,6 @@ ANALYSIS_DIR = SCRIPT_DIR.parent
 IN_FILE = ANALYSIS_DIR / "results" / "07d_mediation_waterfall" / "waterfall.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# FONT. The Figure 2 convention - see figures/fig02c_validation_forest.py.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), so which one fontweight="bold" gets
-# is decided by the order of fontManager.ttflist.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 FS_BODY, FS_SMALL, FS_TICK, FS_XLAB = 8.0, 7.2, 8.0, 7.8
 
@@ -55,7 +37,6 @@ def load():
     # The geometry below assumes every bar grows rightward from 1 and every step
     # shrinks it. Both hold today; neither is guaranteed by the statistics, and a
     # silently upside-down bar would misread as the opposite conclusion.
-    drop = sum(r["delta_or"] for r in rows if r["delta_or"] is not None)
     return rows
 
 

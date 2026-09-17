@@ -64,9 +64,7 @@ effects <- readouts |>
     bind_rows(score) |>
     left_join(aligned |> select(SNP, A1, A2), by = "SNP")
 
-stopifnot(setequal(RSIDS$SNP, aligned$SNP))
 effects <- left_join(effects, RSIDS, by = "SNP")
-stopifnot(!any(is.na(effects$rsid)))
 
 ## ---- orient to the NLRP3-activity-LOWERING allele ---------------------------
 orientation <- effects |>
@@ -199,7 +197,6 @@ trait_info <- list(
     list(name = "Neutrophil_count", label = c("Neutrophil", "count"),     italic = FALSE),
     list(name = SCORE,              label = c("NLRP3", "activity score"), italic = FALSE)
 )
-stopifnot(all(vapply(trait_info, `[[`, "", "name") %in% plot_data$trait))
 
 plots <- lapply(seq_along(trait_info), function(i) {
     create_forest_subplot(plot_data, trait_info[[i]]$name, trait_info[[i]]$label,

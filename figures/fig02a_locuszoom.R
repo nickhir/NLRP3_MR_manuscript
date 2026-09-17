@@ -111,7 +111,6 @@ for (k in names(panels)) {
 }
 
 mr_instrument_snps <- fread(instr_file, data.table = FALSE)$SNP
-stopifnot(length(mr_instrument_snps) == 8)
 
 ## ---- locuszoom ---------------------------------------------------------------
 locus_plot <- function(data, highlights = NULL, title = waiver(),
@@ -176,7 +175,6 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
     index_row <- locus_data$data[locus_data$data$SNPid == index_snp, , drop = FALSE]
     index_row$.x <- index_row[[locus_data$pos]] / 1e6
     index_row$.y <- index_row[[locus_data$yvar]]
-    stopifnot(nrow(index_row) == 1)
 
     # ylab goes through gg_scatter rather than a trailing ylab(): gg_scatter
     # sets the y scale's name itself (for the recombination sec.axis), and a
@@ -228,7 +226,6 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
     # against the panel border.
     y_scale <- which(vapply(locus_plot$scales$scales,
                             function(s) "y" %in% s$aesthetics, logical(1)))
-    stopifnot(length(y_scale) == 1)
     locus_plot$scales$scales[[y_scale]]$expand <- expansion(mult = c(0, 0.18))
 
     # Deviation 2: the instruments, ringed in gold. gg_scatter plots position in

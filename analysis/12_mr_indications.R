@@ -54,8 +54,6 @@ exposure
 exposure <- exposure %>%
     mutate(beta_exposure = -beta_exposure)
 
-exposure_direction <- "1-unit DECREASE in cis-NLRP3 activity score"
-
 
 ## ----helper_proxies-----------------------------------------------------------
 resolve_proxies <- function(std, proxies, label) {

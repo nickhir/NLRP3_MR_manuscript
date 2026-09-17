@@ -22,7 +22,6 @@ dir.create(scratch, recursive = TRUE, showWarnings = FALSE)
 ## ---- parameters ----------------------------------------------------------------
 R2_THRESHOLD <- 0.1 # LD clumping, the manuscript's value
 CLUMP_KB <- 250
-CLUMP_P <- 5e-8  # helpers.R::ld_clump_local() hardcodes --clump-p1 5e-8; this records it.
 HIGH_LD_THRESHOLD <- 0.95 # "friends" of a lead variant
 HIGH_LD_WINDOW_KB <- 40
 PROXY_R2 <- 0.9 # a usable stand-in for a missing representative

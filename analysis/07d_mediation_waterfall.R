@@ -41,9 +41,6 @@ dimnames(Sigma_alpha) <- list(ORDER, ORDER)
 design <- fread(file.path(med_dir, "mvmr_design.tsv"), data.table = FALSE)
 ins    <- fread(file.path(med_dir, "mediator_instruments.tsv"), data.table = FALSE)
 
-by   <- design$beta_cad
-byse <- design$se_cad
-
 # Instrument membership, restricted to variants that survived into the design.
 own <- lapply(ORDER, function(k)
     intersect(design$SNPid, ins$SNPid[ins$mediator == k]))

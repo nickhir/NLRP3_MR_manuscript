@@ -4,17 +4,11 @@
 # Forest panel of the four CAD cohorts and their fixed-effect meta-analysis.
 # Reads results/05_mr_cad/, writes figures_out/Fig3A_cad_forest.pdf.
 
-import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
-import matplotlib
-
-matplotlib.use("Agg")
+from style import apply_style
+apply_style()
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
 from matplotlib.patches import Polygon
 
 from forest_ticks import minor_ticks
@@ -23,21 +17,6 @@ import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
-
-# FONT. The Figure 2 convention - see figures/fig02c_validation_forest.py for
-# the full reasoning.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), so which one fontweight="bold" gets
-# is decided by the order of fontManager.ttflist.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 # SIZE AND TYPE. 190 mm wide with 8 pt body text, matching Figure 3B directly
 # beneath it; the sizes are Figure 2C's.

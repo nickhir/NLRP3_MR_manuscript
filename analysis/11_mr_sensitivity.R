@@ -23,7 +23,6 @@ dir.create(scratch, recursive = TRUE, showWarnings = FALSE)
 R2_GRID           <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
 COLOC_SNP         <- "1_247438293_C_T"      # rs12239046
 CLUMP_KB          <- 250
-CLUMP_P           <- 5e-8  # helpers.R::ld_clump_local() hardcodes --clump-p1 5e-8; this records it.
 HIGH_LD_THRESHOLD <- 0.95
 HIGH_LD_WINDOW_KB <- 40
 PROXY_R2          <- 0.9
@@ -396,7 +395,6 @@ ann <- tibble(SNP = ex01$SNP, rsid = vapply(ex01$SNP, function(s) {
     hit <- rsid_map$rsid[rsid_map$variant_id %in% key(s)]
     if (length(hit)) hit[1] else NA_character_
 }, character(1)))
-n_from_map <- sum(!is.na(ann$rsid))
 
 # The mapping file misses the two rarest instruments, so fall back to the
 # summary statistics' own rsID columns - the same two-source approach

@@ -5,16 +5,11 @@
 # Reads results/04_mr_biomarkers/, writes figures_out/Fig2C_validation_forest.pdf.
 
 import csv
-import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
-import matplotlib
-matplotlib.use("Agg")
+from style import apply_style
+apply_style()
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
 
 from forest_ticks import minor_ticks
 
@@ -25,21 +20,6 @@ REPO = ANALYSIS_DIR.parent
 IN_FILE = ANALYSIS_DIR / "results" / "04_mr_biomarkers" / "mr_biomarkers.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# FONT. One typeface across every panel of Figure 2, R and Python alike - see
-# figures/fig02a_locuszoom.R and fig02b_instrument_forest.R.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), so which one fontweight="bold" gets
-# is decided by the order of fontManager.ttflist.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 FS_BODY, FS_SMALL, FS_TICK, FS_GROUP, FS_XLAB = 8.0, 7.6, 8.0, 8.0, 7.8
 IVW_C, WM_C = "#C0392B", "#2C6FB5"

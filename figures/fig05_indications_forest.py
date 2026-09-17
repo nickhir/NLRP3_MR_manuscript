@@ -4,16 +4,11 @@
 # Forest panel of the activity score against every candidate indication.
 # Reads results/12_mr_indications/, writes figures_out/Fig5_indications_forest.pdf.
 
-import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
-import matplotlib
-matplotlib.use("Agg")
+from style import apply_style
+apply_style()
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
 import numpy as np
 import pandas as pd
 
@@ -25,20 +20,6 @@ IN_FILE = (ANALYSIS_DIR / "results" / "12_mr_indications" /
            "additional_indications_mr_results.tsv")
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# FONT. The manuscript convention - see figures/fig02c_validation_forest.py.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), and ExtraBold wins the tie - so
-# fontweight="bold" silently gives ExtraBold.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 FS_BODY, FS_HEADER, FS_GROUP, FS_TICK, FS_XLAB, FS_SMALL = 8.0, 8.0, 8.0, 8.0, 7.8, 7.6
 # House colours, shared with Figures 3A, 3C, 4D and 4F.
@@ -97,7 +78,6 @@ def fmt_est(e, lo, hi):
 
 # ---- data -------------------------------------------------------------------
 res = pd.read_csv(IN_FILE, sep="\t")
-missing = sorted(set(INDICATIONS) - set(res["outcome"]))
 
 ROWS = {}
 for key in INDICATIONS:
@@ -191,9 +171,6 @@ for kind, key, y_mm in layout:
         fig.text(X_P, fy(y_mm) + off, fmt_p(p), fontsize=FS_BODY, va="center")
 
 # ---- the forest -------------------------------------------------------------
-off_scale = [(k, round(ROWS[k][c][0], 3)) for k in ROWS for c, _l, _cl in METHODS
-             if not X_LO < ROWS[k][c][0] < X_HI]
-
 Y_TOP, Y_BOT = fy(Y_TOP_MM), fy(Y_BOT_MM)
 ax = fig.add_axes([FOREST_L, Y_BOT, FOREST_W, Y_TOP - Y_BOT])
 ax.set_xscale("log")

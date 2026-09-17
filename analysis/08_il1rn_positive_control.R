@@ -40,7 +40,6 @@ CHR        <- 2L
 
 R2_THRESHOLD      <- 0.1        # the threshold the manuscript reports
 CLUMP_KB          <- 250
-CLUMP_P           <- 5e-8  # helpers.R::ld_clump_local() hardcodes --clump-p1 5e-8; this records it.
 HIGH_LD_THRESHOLD <- 0.95
 HIGH_LD_WINDOW_KB <- 40
 PROXY_R2          <- 0.9
