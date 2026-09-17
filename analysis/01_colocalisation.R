@@ -19,24 +19,17 @@ exposure <- load_instruments()
 
 
 ## ---- 1. NLRP3 expression over the locus --------------------------------------
-message("Loading NLRP3 expression (INTERVAL, GRCh38) ...")
-
 cfg  <- READOUTS$NLRP3_expression
 eqtl <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
     harmonise_region(cfg, CHR)
 
-message(sprintf("  %d variants", nrow(eqtl)))
+message(sprintf("NLRP3 expression (INTERVAL, GRCh38): %d variants", nrow(eqtl)))
 
 
 ## ---- 2. identify the variant to condition on ----------------------------------
 # The top NLRP3 expression association in the locus.
 top_snp <- eqtl |> slice_min(p, n = 1, with_ties = FALSE)
 in_gene <- top_snp$pos >= GENE_START & top_snp$pos <= GENE_END
-
-message(sprintf("\nTop NLRP3 expression variant: %s (pos %d, p = %.2e)",
-                top_snp$SNPid, top_snp$pos, top_snp$p))
-message(sprintf("  location: %s the gene body (%d-%d)",
-                ifelse(in_gene, "INSIDE", "outside"), GENE_START, GENE_END))
 
 # If the top variant were inside the gene, conditioning on it would remove the
 # very cluster this analysis isolates. Stop rather than silently invert intent.
@@ -55,7 +48,6 @@ work_dir     <- scratch_path("nlrp3_cojo")
 dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
 region_bfile <- file.path(work_dir, "interval_nlrp3_region")
 
-message("\nCutting the locus out of the INTERVAL panel ...")
 system2(plink2_bin, c("--bfile", ld_panel, "--chr", CHR,
                       "--from-bp", LOCUS_START, "--to-bp", LOCUS_END,
                       "--make-bed", "--out", region_bfile,
@@ -82,9 +74,6 @@ cojo_input <- eqtl |>
     transmute(SNP = to_panel_id(SNPid), A1, A2, freq = A1_freq,
               b = beta, se = se, p = p, N = READOUTS$NLRP3_expression$n)
 
-message(sprintf("  %d eQTL variants present in the panel -> COJO input",
-                nrow(cojo_input)))
-
 ma_path   <- file.path(work_dir, "nlrp3_eqtl.ma")
 cond_path <- file.path(work_dir, "cond.snplist")
 cojo_out  <- file.path(work_dir, "nlrp3_eqtl_cond")
@@ -92,7 +81,6 @@ cojo_out  <- file.path(work_dir, "nlrp3_eqtl_cond")
 write.table(cojo_input, ma_path, sep = "\t", quote = FALSE, row.names = FALSE)
 writeLines(to_panel_id(cond_snp), cond_path)
 
-message(sprintf("Running GCTA-COJO conditional analysis on %s ...", cond_snp))
 system2(gcta_bin, c("--bfile", region_bfile, "--cojo-file", ma_path,
                     "--cojo-cond", cond_path, "--out", cojo_out,
                     "--thread-num", 4), stdout = FALSE)
@@ -104,24 +92,13 @@ eqtl_cond <- fread(cma_path, data.table = FALSE) |>
               pos = as.integer(bp), beta = bC, se = bC_se, p = pC) |>
     filter(!is.na(beta), !is.na(se), se > 0, !is.na(p))
 
-# The conditioning worked if the in-gene cluster survives while the upstream
-# peak is flattened.
-cluster  <- eqtl_cond |> filter(pos >= GENE_START, pos <= GENE_END)
-upstream <- eqtl_cond |> filter(pos < GENE_START)
-message(sprintf("  %d conditioned variants | min p in gene = %.2e | min p upstream = %.2e",
-                nrow(eqtl_cond), min(cluster$p, na.rm = TRUE),
-                min(upstream$p, na.rm = TRUE)))
-
 
 ## ---- 4. the three biomarkers, unconditioned -------------------------------------
-message("\nLoading the biomarkers (GRCh38, unconditioned):")
-
 biomarkers <- lapply(c("CRP", "GlycA", "Neutrophil_count"), function(k) {
     cfg <- READOUTS[[k]]
-    message(sprintf("  %s ...", cfg$label))
     d <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
         harmonise_region(cfg, CHR)
-    message(sprintf("    %d variants", nrow(d)))
+    message(sprintf("%s (GRCh38, unconditioned): %d variants", cfg$label, nrow(d)))
     d
 })
 names(biomarkers) <- c("CRP", "GlycA", "Neutrophil_count")
@@ -131,7 +108,6 @@ names(biomarkers) <- c("CRP", "GlycA", "Neutrophil_count")
 traits <- c(list(NLRP3_expression = eqtl_cond), biomarkers)
 
 common <- Reduce(intersect, lapply(traits, function(d) d$SNPid))
-message(sprintf("\n%d variants shared by all four traits", length(common)))
 
 aligned <- lapply(traits, function(d) d |> filter(SNPid %in% common) |> arrange(SNPid))
 
@@ -140,7 +116,6 @@ ses   <- do.call(cbind, lapply(aligned, function(d) d$se))
 colnames(betas) <- colnames(ses) <- names(traits)
 rownames(betas) <- rownames(ses) <- aligned[[1]]$SNPid
 
-message("Running HyPrColoc ...")
 hypr <- hyprcoloc(
     effect.est = betas, effect.se = ses,
     trait.names = colnames(betas), snp.id = rownames(betas),

@@ -147,6 +147,11 @@ read_region <- function(cfg, chr, start, end) {
 # no rsid and no gene, because a genome-wide rsID column alone costs most of a
 # gigabyte and nothing downstream of these three looks at it.
 read_genome <- function(cfg) {
+    # Before the read, not after it: the caller's previous file is garbage by
+    # now, and collecting it here means it is gone before this fread allocates
+    # rather than while both are resident.
+    gc(verbose = FALSE, full = TRUE)
+
     cols <- c(
         chrom = cfg$chr_col,
         pos = cfg$pos_col,
@@ -186,7 +191,6 @@ read_genome <- function(cfg) {
         dplyr::mutate(chrom = sub("^chr", "", chrom), pos = as.integer(pos))
 
     rm(raw)
-    gc(verbose = FALSE, full = TRUE)
     df
 }
 
@@ -196,8 +200,8 @@ read_genome <- function(cfg) {
 # Confirm a file is on the build it claims, by counting how many of the eight
 # instruments land at GRCh38 vs GRCh37 coordinates. Cheap, and it has caught
 # real mislabelling.
-verify_build <- function(df, pos_col, declared_build, label, exposure) {
-    pos <- as.integer(df[[pos_col]])
+verify_build <- function(df, declared_build, label, exposure) {
+    pos <- as.integer(df[["pos"]])
     n38 <- sum(exposure$pos_hg38 %in% pos)
     n19 <- sum(exposure$pos_hg19 %in% pos)
 
@@ -398,12 +402,8 @@ load_instruments <- function(path = instrument_file, negate = TRUE) {
 
         bad <- cmp[!is.na(cmp$delta) & cmp$delta > 0.05, , drop = FALSE]
         if (nrow(bad) > 0) {
-            msg <- sprintf(
-                paste0(
-                    "[%s] %d variant(s) disagree with the LD panel on A1 ",
-                    "frequency by more than %.2f - the panel and the summary ",
-                    "statistics are naming different variants:\n%s"
-                ),
+            stop(sprintf(
+                "[%s] %d variant(s) disagree with the LD panel on A1 frequency by more than %.2f - the panel and the summary statistics are naming different variants:\n%s",
                 label,
                 nrow(bad),
                 0.05,
@@ -417,14 +417,6 @@ load_instruments <- function(path = instrument_file, negate = TRUE) {
                     ),
                     collapse = "\n"
                 )
-            )
-            stop(msg)
-        } else {
-            message(sprintf(
-                "[%s] panel/data A1 frequency agree for %d variant(s), max |d| = %.4f",
-                label,
-                nrow(cmp),
-                max(cmp$delta, na.rm = TRUE)
             ))
         }
         invisible(cmp)
@@ -572,11 +564,6 @@ run_mr <- function(dat, ld_full) {
         dplyr::filter(!is.na(beta_outcome), !is.na(se_outcome), se_outcome > 0)
 
     if (nrow(usable) < 3L) {
-        message(sprintf(
-            "[%s] only %d usable instruments, skipping",
-            label,
-            nrow(usable)
-        ))
         return(NULL)
     }
 
@@ -728,8 +715,12 @@ lookup_at <- function(cfg, want) {
         pos = as.integer(pos)
     )
 
-    df <- read_genome(cfg) |>
-        dplyr::inner_join(keep, by = c("chrom", "pos"))
+    genome <- read_genome(cfg)
+    df <- dplyr::inner_join(genome, keep, by = c("chrom", "pos"))
+    # The join keeps a handful of rows out of tens of millions; release the
+    # whole-genome table here rather than at the end of the caller's iteration.
+    rm(genome)
+    gc(verbose = FALSE, full = TRUE)
     if (nrow(df) == 0) {
         stop(sprintf("[%s] no rows matched", cfg$label))
     }
@@ -742,19 +733,14 @@ lookup_at <- function(cfg, want) {
 ## -----------------------------------------------------------------------------
 
 get_high_ld_snps <- function(leads, reference, r2, kb) {
-    message(paste(
-        "Calculating LD using the following reference panel:",
-        basename(reference)
-    ))
     out_file <- scratch_file()
-    plink_exe <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
 
     # Create a temporary file to write the SNP(s) to
     snps_file <- scratch_file(fileext = ".snps")
     writeLines(leads, snps_file)
 
     cmd <- paste(
-        plink_exe,
+        plink2_bin,
         "--pfile",
         reference,
         "--r2-unphased",
@@ -859,12 +845,7 @@ add_LD <- function(
         reference,
         ...
     ) {
-        message(paste(
-            "Calculating LD using the following reference panel:",
-            basename(reference)
-        ))
         out_file <- scratch_file()
-        plink_exe <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
 
         # extract all variants in that locus -> speeds up computation
         tmp_variants_file <- scratch_file()
@@ -896,11 +877,11 @@ add_LD <- function(
                 1
         ) {
             cmd <- stringr::str_interp(
-                "${plink_exe} --chr ${chr_} --extract ${tmp_variants_file} --pfile ${reference} --make-pgen --out ${tmp_plink}"
+                "${plink2_bin} --chr ${chr_} --extract ${tmp_variants_file} --pfile ${reference} --make-pgen --out ${tmp_plink}"
             )
         } else {
             cmd <- stringr::str_interp(
-                "${plink_exe} --chr ${chr_} --extract ${tmp_variants_file} --bfile ${reference} --make-pgen --out ${tmp_plink}"
+                "${plink2_bin} --chr ${chr_} --extract ${tmp_variants_file} --bfile ${reference} --make-pgen --out ${tmp_plink}"
             )
         }
         system(cmd, ignore.stdout = T)
@@ -908,7 +889,7 @@ add_LD <- function(
         # run plink
         system(
             paste(
-                plink_exe,
+                plink2_bin,
                 "--pfile",
                 tmp_plink,
                 "--r2-unphased --ld-snp",
@@ -924,9 +905,6 @@ add_LD <- function(
             system(str_interp("rm ${tmp_plink}*"))
             return(out)
         } else {
-            message(
-                "Initial calculation failed, because SNP was not found in the dataset"
-            )
             system(str_interp("rm ${tmp_plink}*"))
             stop(
                 "Make sure the index SNP exists in the reference panel. Otherwise select a different one using index_snp=''"

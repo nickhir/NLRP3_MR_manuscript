@@ -40,7 +40,7 @@ CHR        <- 2L
 
 R2_THRESHOLD      <- 0.1        # the threshold the manuscript reports
 CLUMP_KB          <- 250
-CLUMP_P           <- 5e-8
+CLUMP_P           <- 5e-8  # helpers.R::ld_clump_local() hardcodes --clump-p1 5e-8; this records it.
 HIGH_LD_THRESHOLD <- 0.95
 HIGH_LD_WINDOW_KB <- 40
 PROXY_R2          <- 0.9
@@ -113,13 +113,9 @@ LOCUS_END   <- as.integer(GENE_END + 150e3)
 PANEL_START <- as.integer(LOCUS_START - 300e3)
 PANEL_END   <- as.integer(LOCUS_END + 300e3)
 
-message(sprintf("IL1RN chr%d:%d-%d | analysis window %d-%d | panel %d-%d",
-                CHR, GENE_START, GENE_END, LOCUS_START, LOCUS_END,
-                PANEL_START, PANEL_END))
-
 ## ----helper_readers-----------------------------------------------------------
-# get_high_ld_snps() with the plink2 binary taken from config.R rather than
-# hardcoded.
+# helpers.R::get_high_ld_snps() run through system2() with stderr suppressed,
+# rather than system(). Same plink2 invocation otherwise.
 high_ld_snps_local <- function(index_variants, reference, ld_threshold,
                                window_kb, plink2 = plink2_bin, threads = 4) {
     snps_file <- scratch_file(fileext = ".snps")
@@ -143,7 +139,6 @@ prepare_readout <- function(path, label, chr_col, pos_col, ea_col, oa_col,
                             beta_col, se_col, p_col, n_value,
                             eaf_col = NULL, rsid_col = NULL,
                             gene_col = NULL, gene = NULL, panel_ids = NULL) {
-    message("  ", label, " ...")
     # read_region() takes a registry entry; these readouts are spelled out here
     # rather than in config.R because they are the chr2 releases.
     df <- read_region(
@@ -178,7 +173,7 @@ prepare_readout <- function(path, label, chr_col, pos_col, ea_col, oa_col,
 
     if (!is.null(panel_ids)) out <- out %>% filter(SNP %in% panel_ids)
 
-    message("    ", nrow(out), " variants")
+    message(sprintf("  %s: %d variants", label, nrow(out)))
     out
 }
 
@@ -187,7 +182,6 @@ prepare_readout <- function(path, label, chr_col, pos_col, ea_col, oa_col,
 # 2_POS_A1_A2, so the subset is rewritten with plink2's own ID template:
 # $1/$2 are the ASCII-sorted alleles, which is exactly the project convention.
 panel_raw <- file.path(scratch, "il1rn_region_raw")
-message("Cutting the INTERVAL panel to the locus ...")
 system2(plink2_bin, c("--bfile", ld_panel,
                       "--chr", CHR, "--from-bp", PANEL_START, "--to-bp", PANEL_END,
                       # shQuote is essential: system2() goes through a shell,
@@ -243,7 +237,6 @@ write_tsv(freq_cmp %>% filter(delta > FREQ_TOL) %>% arrange(desc(delta)),
           file.path(out_dir, "il1rn_frequency_discordant_variants.tsv"))
 
 ## ----readouts-----------------------------------------------------------------
-message("Loading readouts (chr", CHR, ":", LOCUS_START, "-", LOCUS_END, "):")
 eQTLs <- prepare_readout(eqtl_file, "IL1RN expression", "chr", "pos_b38",
                          "effect_allele", "other_allele", "slope", "slope_se",
                          "pval_nominal", N_INTERVAL, eaf_col = "af",
@@ -270,21 +263,17 @@ availability <- function(snp) sum(vapply(summary_stats,
                                          function(x) snp %in% x$SNP, logical(1)))
 
 ## ----step1_clumping-----------------------------------------------------------
-message("\nSTEP 1  LD clumping per trait (r2 < ", R2_THRESHOLD, ")")
 clumped <- list()
 for (tn in names(summary_stats)) {
     cl <- ld_clump_local(variants = summary_stats[[tn]], bfile = ld_reference,
                          r2 = R2_THRESHOLD, kb = CLUMP_KB)
     clumped[[tn]] <- cl$ID
-    message(sprintf("  %-7s -> %d lead SNP(s)", tn, length(cl$ID)))
 }
 
 ## ----step2_high_ld_friends----------------------------------------------------
 # Standard clumping is greedy and per trait, so two traits can pick different
 # lead SNPs that tag the same signal. Expanding each lead into its high-LD
 # neighbourhood lets those be recognised as one block.
-message("STEP 2  high-LD friends (r2 > ", HIGH_LD_THRESHOLD, ", ",
-        HIGH_LD_WINDOW_KB, " kb)")
 friends <- lapply(names(clumped), function(tn) {
     lead <- clumped[[tn]]
     if (length(lead) == 0) return(NULL)
@@ -310,7 +299,6 @@ for (tn in names(blocks)) for (b in names(blocks[[tn]])) {
 }
 
 ## ----step3_shared_components--------------------------------------------------
-message("STEP 3  merging blocks that share a variant")
 block_snps <- lapply(flat, unique)
 block_names <- names(flat)
 adj <- sapply(block_names, function(i)
@@ -335,8 +323,6 @@ shared <- lapply(names(comp_list), function(id) {
     mutate(num_traits = eQTLs + CRP + GlycA + neutro) %>%
     filter(num_traits >= 2)
 
-message("  components spanning >= 2 traits: ", nrow(shared))
-
 shared$SNPs <- vapply(seq_len(nrow(shared)), function(i) {
     bl <- str_trim(unlist(str_split(shared$LD_blocks[i], ",")))
     paste(unique(unlist(block_snps[bl])), collapse = ",")
@@ -345,7 +331,6 @@ shared$SNPs <- vapply(seq_len(nrow(shared)), function(i) {
 ## ----step4_representatives----------------------------------------------------
 # One instrument per signal: prefer variants present in all four readouts (so
 # the PCA has no missing cells), then take the lowest CRP p-value.
-message("STEP 4  one representative per component")
 pick_best <- function(snps) {
     av <- vapply(snps, availability, 1L)
     best <- snps[av == max(av)]
@@ -361,7 +346,6 @@ need_proxy <- instruments[vapply(instruments, availability, 1L) != 4]
 proxy_log <- tibble(original = character(), replacement = character(),
                     r2 = numeric())
 if (length(need_proxy) > 0) {
-    message("STEP 5  proxying ", length(need_proxy), " instrument(s) missing from a readout")
     hl <- high_ld_snps_local(need_proxy, reference = ld_reference,
                              ld_threshold = PROXY_R2,
                              window_kb = PROXY_WINDOW_KB)
@@ -381,14 +365,10 @@ if (length(need_proxy) > 0) {
                                   instruments)
         }
     }
-} else {
-    message("STEP 5  every instrument present in all four readouts, no proxies needed")
 }
 instruments <- unique(instruments)
-message("  instruments: ", length(instruments))
 
 ## ----step6_pca----------------------------------------------------------------
-message("STEP 6  PCA over the 4-trait effect matrix")
 effect_matrix <- function(field) {
     map_dfr(names(summary_stats), ~ summary_stats[[.x]] %>%
                 filter(SNP %in% instruments) %>% mutate(trait = .x)) %>%
@@ -401,13 +381,7 @@ se_m   <- effect_matrix("se")
 se_m   <- se_m[rownames(beta_m), colnames(beta_m), drop = FALSE]
 
 # drop_na() above removes any instrument still missing from a readout after
-# proxying, so the matrix can be smaller than the candidate list. Reported
-# rather than silent.
-if (nrow(beta_m) < length(instruments)) {
-    message(sprintf("  %d of %d candidates dropped for incomplete readout coverage: %s",
-                    length(instruments) - nrow(beta_m), length(instruments),
-                    paste(setdiff(instruments, rownames(beta_m)), collapse = ", ")))
-}
+# proxying, so the matrix can be smaller than the candidate list.
 message("  instruments entering the PCA: ", nrow(beta_m))
 
 pca <- prcomp(beta_m, center = TRUE, scale. = TRUE)
@@ -417,8 +391,6 @@ beta_latent <- as.numeric(beta_m %*% loadings)
 pc1_var <- summary(pca)$importance[2, 1]
 
 message(sprintf("  PC1 explains %.1f%% of variance", 100 * pc1_var))
-message("  loadings: ",
-        paste(sprintf("%s = %+.3f", names(loadings), loadings), collapse = "   "))
 
 ## ----step7_standard_errors----------------------------------------------------
 # Worst case: the eQTL is an independent cohort, but CRP, GlycA and neutrophil
@@ -487,10 +459,6 @@ if (nrow(disagree) > 0) {
     print(as.data.frame(disagree), row.names = FALSE)
     stop("the rsID mapping file and the summary statistics disagree")
 }
-message(sprintf("rsIDs: %d from the mapping file, %d from the summary statistics",
-                sum(!is.na(variants$rsid_map)),
-                sum(is.na(variants$rsid_map) & !is.na(variants$rsid_source))))
-
 ## ----write--------------------------------------------------------------------
 # Long, one row per variant x readout, all on A1. Orientation for the figure is
 # applied by the plotting script, not baked in here.
@@ -528,7 +496,6 @@ write_tsv(instrument_table, file.path(out_dir, "il1rn_instruments.tsv"))
 write_tsv(loading_table,    file.path(out_dir, "il1rn_pca_loadings.tsv"))
 write_tsv(proxy_log,        file.path(out_dir, "il1rn_proxy_replacements.tsv"))
 
-message("\nwrote ", file.path(out_dir, "il1rn_instrument_effects.tsv"))
 print(as.data.frame(instrument_table %>%
     transmute(rsid, SNP, eaf = round(eaf, 4),
               beta_score = round(beta_score, 5), se_score = round(se_score, 5))),
@@ -540,9 +507,7 @@ print(as.data.frame(instrument_table %>%
 # score predict the protein it proxies, and does more IL1Ra activity lower risk
 # of the diseases anakinra treats?
 
-message("\n--- MR validation ---")
 ld_il1rn <- interval_ld_matrix(variants$SNP)
-message("LD matrix (signed, A1-oriented):")
 print(round(ld_il1rn, 3))
 
 exposure <- variants %>%

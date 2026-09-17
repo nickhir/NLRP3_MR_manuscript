@@ -24,12 +24,7 @@ K           <- length(instruments)
 
 
 ## ---- LD matrix -------------------------------------------------------------------
-message("Computing the INTERVAL LD matrix ...")
 ld <- interval_ld_matrix(instruments)
-
-ld_eigen <- eigen(ld, symmetric = TRUE)$values
-message(sprintf("  max off-diagonal r2 = %.4f | kappa = %.2f | lambda_min = %.3f",
-                max((ld^2)[upper.tri(ld)]), kappa(ld), min(ld_eigen)))
 
 # Inversion noise would only start to matter as lambda_min approached
 # K/sqrt(n_ref) ~ 8/109 ~ 0.07, so no ridge or PCA projection is needed.
@@ -37,8 +32,6 @@ ld_inv <- solve(ld)
 
 
 ## ---- compute -----------------------------------------------------------------------
-message("Computing instrument strength ...")
-
 inputs <- c(
     lapply(names(READOUTS), function(k) list(
         label = k,

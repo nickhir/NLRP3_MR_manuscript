@@ -115,7 +115,6 @@ report_missing <- function(harmonised, label) {
     absent <- harmonised |> dplyr::filter(is.na(beta_raw))
     mismatch <- harmonised |>
         dplyr::filter(!is.na(beta_raw) & is.na(beta_outcome))
-    palin <- harmonised |> dplyr::filter(!is.na(beta_outcome) & palindromic)
 
     if (nrow(absent) > 0) {
         warning(sprintf(
@@ -131,13 +130,6 @@ report_missing <- function(harmonised, label) {
             label,
             nrow(mismatch),
             paste(mismatch$SNP, collapse = ", ")
-        ))
-    }
-    if (nrow(palin) > 0) {
-        message(sprintf(
-            "  note: %d palindromic instrument(s) matched on allele identity only: %s",
-            nrow(palin),
-            paste(palin$SNP, collapse = ", ")
         ))
     }
     message(sprintf(
@@ -165,8 +157,6 @@ prepare_outcome <- function(
     # se_source = "p" needs only p_col
     eaf_col = NULL,
     p_col = NULL,
-    eaf_scale = 1, # 100 when EAF is a percentage
-    sep = "tab",
     proxies = NULL, # see resolve_proxies()
     n_cases = NA_integer_,
     n_controls = NA_integer_
@@ -189,14 +179,13 @@ prepare_outcome <- function(
             ci_lower_col = ci_lower_col,
             ci_upper_col = ci_upper_col,
             eaf_col = eaf_col,
-            p_col = p_col,
-            sep = sep
+            p_col = p_col
         ),
         CHR,
         INDICATION_REGION_START,
         INDICATION_REGION_END
     )
-    verify_build(raw, "pos", build, label, exposure)
+    verify_build(raw, build, label, exposure)
 
     pos_key <- if (build == "GRCh38") "pos_hg38" else "pos_hg19"
 
@@ -209,11 +198,7 @@ prepare_outcome <- function(
             se_column = if (se_source == "column") as.numeric(se) else NA_real_,
             ci_lower = if (se_source == "ci") as.numeric(ci_lower) else NA_real_,
             ci_upper = if (se_source == "ci") as.numeric(ci_upper) else NA_real_,
-            eaf_outcome = if (is.null(eaf_col)) {
-                NA_real_
-            } else {
-                as.numeric(eaf) / eaf_scale
-            },
+            eaf_outcome = if (is.null(eaf_col)) NA_real_ else as.numeric(eaf),
             p_outcome = if (is.null(p_col)) NA_real_ else as.numeric(p)
         ) %>%
         mutate(

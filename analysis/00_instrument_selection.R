@@ -22,7 +22,7 @@ dir.create(scratch, recursive = TRUE, showWarnings = FALSE)
 ## ---- parameters ----------------------------------------------------------------
 R2_THRESHOLD <- 0.1 # LD clumping, the manuscript's value
 CLUMP_KB <- 250
-CLUMP_P <- 5e-8
+CLUMP_P <- 5e-8  # helpers.R::ld_clump_local() hardcodes --clump-p1 5e-8; this records it.
 HIGH_LD_THRESHOLD <- 0.95 # "friends" of a lead variant
 HIGH_LD_WINDOW_KB <- 40
 PROXY_R2 <- 0.9 # a usable stand-in for a missing representative
@@ -35,21 +35,9 @@ FREQ_TOL <- 0.05 # panel vs GWAS A1 frequency
 PANEL_START <- as.integer(INSTRUMENT_START - 300e3)
 PANEL_END <- as.integer(INSTRUMENT_END + 300e3)
 
-message(sprintf(
-    "NLRP3 chr%d:%d-%d | window %d-%d | panel %d-%d",
-    CHR,
-    GENE_START,
-    GENE_END,
-    INSTRUMENT_START,
-    INSTRUMENT_END,
-    PANEL_START,
-    PANEL_END
-))
-
 
 ## ---- the panel, cut to the locus -----------------------------------------------
 panel_raw <- file.path(scratch, "nlrp3_region_raw")
-message("Cutting the INTERVAL panel to the locus ...")
 system2(
     plink2_bin,
     c(
@@ -84,7 +72,6 @@ system2(
 # which file, column or sample size each readout uses.
 prepare_readout <- function(key, panel_ids = NULL) {
     cfg <- READOUTS[[key]]
-    message("  ", cfg$label, " ...")
 
     df <- read_region(cfg, CHR, INSTRUMENT_START, INSTRUMENT_END)
     df$.chr <- sub("^chr", "", as.character(df$chrom))
@@ -131,7 +118,7 @@ prepare_readout <- function(key, panel_ids = NULL) {
     if (!is.null(panel_ids)) {
         out <- out %>% filter(SNP %in% panel_ids)
     }
-    message("    ", nrow(out), " variants")
+    message(sprintf("  %s: %d variants", cfg$label, nrow(out)))
     out
 }
 
@@ -171,7 +158,6 @@ panel_freq$freq_panel <- ifelse(
     panel_freq$ALT_FREQS
 )
 
-message("Frequency concordance (INTERVAL vs the neutrophil GWAS):")
 neut_for_freq <- prepare_readout("Neutrophil_count")
 
 freq_cmp <- inner_join(
@@ -217,7 +203,6 @@ panel_eaf <- panel_freq %>%
     transmute(SNP = ID, eaf_panel = freq_panel) %>%
     filter(SNP %in% panel_ids)
 
-message("Loading readouts:")
 summary_stats <- list(
     eQTLs = prepare_readout("NLRP3_expression", panel_ids = panel_ids),
     CRP = prepare_readout("CRP", panel_ids = panel_ids),
@@ -230,13 +215,6 @@ availability <- function(snp) {
 
 
 ## ---- step 1  LD clumping per readout -------------------------------------------
-message(
-    "\nSTEP 1  LD clumping per readout (r2 < ",
-    R2_THRESHOLD,
-    ", p < ",
-    CLUMP_P,
-    ")"
-)
 clumped <- list()
 for (tn in names(summary_stats)) {
     cl <- ld_clump_local(
@@ -246,18 +224,10 @@ for (tn in names(summary_stats)) {
         kb = CLUMP_KB
     )
     clumped[[tn]] <- cl$ID
-    message(sprintf("  %-7s -> %d lead SNP(s)", tn, length(cl$ID)))
 }
 
 
 ## ---- step 2  high-LD blocks ----------------------------------------------------
-message(
-    "STEP 2  high-LD friends (r2 > ",
-    HIGH_LD_THRESHOLD,
-    ", ",
-    HIGH_LD_WINDOW_KB,
-    " kb)"
-)
 friends <- lapply(names(clumped), function(tn) {
     lead <- clumped[[tn]]
     if (length(lead) == 0) {
@@ -295,7 +265,6 @@ for (tn in names(blocks)) {
 
 
 ## ---- step 3  merge blocks that share a variant ---------------------------------
-message("STEP 3  merging blocks that share a variant")
 block_snps <- lapply(flat, unique)
 block_names <- names(flat)
 adj <- sapply(block_names, function(i) {
@@ -326,7 +295,6 @@ shared <- lapply(names(comp_list), function(id) {
     bind_rows() %>%
     mutate(num_traits = eQTLs + CRP + GlycA + neutro) %>%
     filter(num_traits >= 2)
-message("  components spanning >= 2 readouts: ", nrow(shared))
 shared$SNPs <- vapply(
     seq_len(nrow(shared)),
     function(i) {
@@ -338,9 +306,6 @@ shared$SNPs <- vapply(
 
 
 ## ---- step 4  one representative per component ----------------------------------
-message(
-    "STEP 4  one representative per component (most readouts, then lowest CRP p)"
-)
 pick_best <- function(snps) {
     av <- vapply(snps, availability, 1L)
     best <- snps[av == max(av)]
@@ -363,11 +328,6 @@ proxy_log <- tibble(
     r2 = numeric()
 )
 if (length(need_proxy) > 0) {
-    message(
-        "STEP 5  proxying ",
-        length(need_proxy),
-        " representative(s) missing from a readout"
-    )
     hl <- get_high_ld_snps(
         need_proxy,
         reference = ld_reference,
@@ -394,17 +354,6 @@ if (length(need_proxy) > 0) {
             if (length(best) == 0) {
                 return(NULL)
             }
-            if (nrow(cand) > 1) {
-                message(sprintf(
-                    "    %s: %d proxies within %.2f r2 -> CRP p picks %s (r2 %.4f; best r2 %.4f)",
-                    s,
-                    nrow(cand),
-                    PROXY_R2_TIE,
-                    best,
-                    cand$UNPHASED_R2[match(best, cand$ID_B)],
-                    max(cand$UNPHASED_R2)
-                ))
-            }
             tibble(
                 original = s,
                 replacement = best,
@@ -422,17 +371,11 @@ if (length(need_proxy) > 0) {
             )
         }
     }
-} else {
-    message(
-        "STEP 5  every representative present in all four readouts, no proxies needed"
-    )
 }
 instruments <- unique(instruments)
-message("  candidate instruments: ", length(instruments))
 
 
 ## ---- step 6  PCA ---------------------------------------------------------------
-message("STEP 6  PCA over the 4-readout effect matrix")
 effect_matrix <- function(field) {
     lapply(names(summary_stats), function(tn) {
         summary_stats[[tn]] %>%
@@ -449,15 +392,8 @@ effect_matrix <- function(field) {
 beta_m <- effect_matrix("beta")
 se_m <- effect_matrix("se")[rownames(beta_m), colnames(beta_m), drop = FALSE]
 
-# drop_na() removes any candidate still missing from a readout after proxying.
-# Reported rather than silent.
-if (nrow(beta_m) < length(instruments)) {
-    message(sprintf(
-        "  %d dropped for incomplete readout coverage: %s",
-        length(instruments) - nrow(beta_m),
-        paste(setdiff(instruments, rownames(beta_m)), collapse = ", ")
-    ))
-}
+# drop_na() removes any candidate still missing from a readout after proxying,
+# so this can be fewer than the candidate list.
 message("  instruments entering the PCA: ", nrow(beta_m))
 
 pca <- prcomp(beta_m, center = TRUE, scale. = TRUE)
@@ -468,10 +404,6 @@ if (all(sign(loadings) < 0)) {
 beta_latent <- as.numeric(beta_m %*% loadings)
 pc1_var <- summary(pca)$importance[2, 1]
 message(sprintf("  PC1 explains %.1f%% of variance", 100 * pc1_var))
-message(
-    "  loadings: ",
-    paste(sprintf("%s = %+.3f", names(loadings), loadings), collapse = "   ")
-)
 
 
 ## ---- step 7  worst-case standard errors ----------------------------------------

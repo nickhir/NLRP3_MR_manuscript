@@ -42,7 +42,7 @@ run_trait <- function(key) {
     raw <- read_region(cfg, CHR, rng[1], rng[2])
 
     # Confirm the file is on the build it claims before trusting any match.
-    verify_build(raw, "pos", cfg$build, cfg$label, exposure)
+    verify_build(raw, cfg$build, cfg$label, exposure)
 
     harmonised <- harmonise_region(raw, cfg, CHR, pos_map = pos_map)
 
@@ -59,15 +59,11 @@ run_trait <- function(key) {
                              maf = pmin(d$eaf, 1 - d$eaf),
                              n = round(median(d$n)))
         sd_scale <- if (is.finite(s) && s > 2) s else 1
-        message(sprintf("      sdY = %.3f native units per SD", sd_scale))
         harmonised <- harmonised |> mutate(beta = beta / sd_scale,
                                            se   = se   / sd_scale)
     }
 
     outcome <- harmonised |> filter(SNPid %in% instruments)
-
-    found <- sum(instruments %in% outcome$SNPid)
-    message(sprintf("      %d/8 instruments", found))
 
     dat <- exposure |>
         select(SNP, beta_exposure, se_exposure) |>
@@ -85,7 +81,6 @@ run_trait <- function(key) {
                .before  = 1)
 }
 
-message("Cardiometabolic risk factors, per one-unit decrease in the score:")
 results <- lapply(names(CARDIOMETABOLIC), run_trait) |> bind_rows()
 
 
@@ -106,14 +101,6 @@ for (i in seq_len(nrow(ivw))) {
     message(sprintf("  %-14s %2d SNPs  %7.3f (%7.3f, %7.3f)  P=%8.3g",
                     ivw$outcome[i], ivw$nsnp[i], ivw$estimate[i],
                     ivw$ci_lower[i], ivw$ci_upper[i], ivw$p[i]))
-}
-
-# Any trait running on fewer than eight instruments is named rather than left
-# to be noticed in the table.
-short <- ivw |> filter(nsnp < 8)
-if (nrow(short) > 0) {
-    message("\nFewer than 8 instruments: ",
-            paste(sprintf("%s (%d)", short$outcome, short$nsnp), collapse = ", "))
 }
 
 fwrite(results, file.path(out_dir, "cardiometabolic_mr.tsv"), sep = "\t")

@@ -37,14 +37,16 @@ instr_file   <- file.path(analysis_dir, "results", "02_instrument_table",
 figures_dir  <- file.path(analysis_dir, "figures_out")
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
-# add_LD() and to_panel_id() come from here. helpers.R is shared function
-# definitions only - the Rmd sourced its equivalent the same way. config.R is
-# the file a figure script may not reach for, and this does not.
+# add_LD() and to_panel_id() come from helpers.R. helpers.R is no longer
+# standalone - it resolves plink2_bin from config.R - so config.R is sourced
+# with it, in the order every analysis/ script uses. config.R declares paths
+# and constants and runs nothing, so this stays a figure script.
+source(here::here("config.R"))
 source(here::here("helpers.R"))
 
-# INTERVAL WGS, GRCh38, 11,863 European-ancestry genomes - the same panel
-# config.R names, hardcoded here because a figure script may not source
-# config.R. The Rmd hardcoded its LD reference the same way.
+# INTERVAL WGS, GRCh38, 11,863 European-ancestry genomes. Same value config.R
+# gives ld_panel; named here so the panel this figure draws against is on the
+# page rather than two files away.
 ld_panel <- paste0(
     "/rds/user/nh608/hpc-work/oxLDL/data/oxLDL_data/INTERVAL_reference/",
     "WGS_reference/ld_panels/INTERVAL_allchr.GRCh38.alpha_sorted_alleles"

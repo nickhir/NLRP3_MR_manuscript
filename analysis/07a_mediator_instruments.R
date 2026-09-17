@@ -46,10 +46,8 @@ clump_key <- function(nlog10) {
 ## ---- select instruments per mediator ---------------------------------------------
 instruments <- lapply(names(MEDIATORS), function(k) {
     cfg <- MEDIATORS[[k]]
-    message(sprintf("\n=== %s ===", cfg$label))
-
     sig <- read_significant(cfg) %>% to_common(cfg)
-    message(sprintf("  %s variants at p < %g",
+    message(sprintf("%s: %s variants at p < %g", cfg$label,
                     format(nrow(sig), big.mark = ","), MED_CLUMP_P))
 
     # Clump against INTERVAL, which names variants chr1:POS:A1:A2. Variants the
@@ -81,14 +79,11 @@ instruments <- lapply(names(MEDIATORS), function(k) {
 # one it was selected for.
 # `chrom`/`pos` are what lookup_at() joins on, SNPid what it filters to.
 union_snps <- instruments %>% distinct(SNPid, chrom = chr, pos)
-message(sprintf("\nUnion of instruments: %s variants", format(nrow(union_snps), big.mark = ",")))
 
-message("Measuring every mediator at the union:")
 med_at_union <- lapply(names(MEDIATORS), function(k) {
     cfg <- MEDIATORS[[k]]
-    message(sprintf("  %s ...", cfg$label))
     d <- lookup_at(cfg, union_snps)
-    message(sprintf("    %s / %s variants present",
+    message(sprintf("%s at the union: %s / %s variants present", cfg$label,
                     format(nrow(d), big.mark = ","), format(nrow(union_snps), big.mark = ",")))
     d %>% transmute(SNPid, mediator = k, beta, se, eaf, n)
 }) %>% bind_rows()
@@ -102,7 +97,6 @@ sd_scales <- sapply(names(MEDIATORS), function(k) {
     d <- med_at_union %>% filter(mediator == k, !is.na(eaf), !is.na(n))
     s <- coloc:::sdY.est(vbeta = d$se^2, maf = pmin(d$eaf, 1 - d$eaf),
                          n = round(median(d$n)))
-    message(sprintf("%s: sdY = %.3f native units per SD", k, s))
     # A trait already on an SD scale returns ~1; scaling by that would be a
     # no-op at best and a distortion at worst, so leave it alone.
     if (s > 2) s else 1
@@ -118,22 +112,15 @@ med_at_union <- med_at_union %>%
 # code change once its genome-wide data arrives.
 available <- Filter(function(k) file.exists(CAD_STUDIES[[k]]$file), names(CAD_STUDIES))
 skipped   <- setdiff(names(CAD_STUDIES), available)
-if (length(skipped) > 0) {
-    message(sprintf("\nCAD studies skipped (no file): %s",
-                    paste(sapply(skipped, function(k) CAD_STUDIES[[k]]$label), collapse = ", ")))
-}
-
-message(sprintf("Looking up %s instruments across %d CAD studies ...",
-                format(nrow(union_snps), big.mark = ","), length(available)))
 
 cad <- lapply(available, function(k) {
     cfg <- CAD_STUDIES[[k]]
-    message(sprintf("  %s ...", cfg$label))
-    lookup_at(cfg, union_snps) %>%
+    d <- lookup_at(cfg, union_snps) %>%
         transmute(SNPid, beta, se, study = k)
+    message(sprintf("%s at the union: %s variants", cfg$label,
+                    format(nrow(d), big.mark = ",")))
+    d
 }) %>% bind_rows()
-
-message(sprintf("  %s study-variant rows", format(nrow(cad), big.mark = ",")))
 
 
 ## ---- fixed-effect meta-analysis of CAD ------------------------------------------------
@@ -154,11 +141,6 @@ cad_meta <- cad %>%
            Q_p  = ifelse(Q_df > 0, pchisq(Q, Q_df, lower.tail = FALSE), NA_real_),
            I2   = ifelse(Q_df > 0, pmax(0, (Q - Q_df) / Q) * 100, NA_real_))
 
-message(sprintf("  meta over %s variants | median I2 = %.1f%% | %.1f%% with Q p < 0.05",
-                format(nrow(cad_meta), big.mark = ","),
-                median(cad_meta$I2, na.rm = TRUE),
-                100 * mean(cad_meta$Q_p < 0.05, na.rm = TRUE)))
-
 
 ## ---- MVMR design matrix ------------------------------------------------------------
 design <- med_at_union %>%
@@ -169,10 +151,7 @@ design <- med_at_union %>%
 # Every exposure must be measured at every instrument. Losses here are variants
 # one GWAS simply does not carry; a large drop would mean a harmonisation
 # problem rather than genuine absence.
-before <- nrow(design)
 design <- design %>% drop_na(starts_with("beta_sd_"), starts_with("se_sd_"))
-message(sprintf("\nMVMR design: %d variants (%d dropped, not present in all three mediator GWAS)",
-                nrow(design), before - nrow(design)))
 
 fwrite(instruments,  file.path(out_dir, "mediator_instruments.tsv"), sep = "\t")
 fwrite(med_at_union, file.path(out_dir, "mediators_at_union.tsv"), sep = "\t")

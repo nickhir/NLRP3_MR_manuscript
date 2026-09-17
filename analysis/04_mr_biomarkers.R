@@ -29,18 +29,14 @@ ld_full <- interval_ld_matrix(instruments)
 # marker, and Figure 2B already shows it per variant.
 PROXIES <- c("CRP", "GlycA", "Neutrophil_count")
 
-message("Systemic inflammation proxies (re-derived from source, all GRCh38):")
-
 proxy_mr <- lapply(PROXIES, function(k) {
     cfg <- READOUTS[[k]]
-    message(sprintf("  %s ...", cfg$label))
-
     outcome <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
         harmonise_region(cfg, CHR) |>
         filter(SNPid %in% instruments)
 
     found <- sum(instruments %in% outcome$SNPid)
-    message(sprintf("    %d/8 instruments recovered", found))
+    message(sprintf("%s (GRCh38): %d/8 instruments recovered", cfg$label, found))
     if (found != 8) {
         stop(sprintf("[%s] only %d/8 instruments found at GRCh38 positions",
                      cfg$label, found))
@@ -70,9 +66,6 @@ assays <- tibble(protein_id = readLines(ppp_manifest)) |>
     mutate(gene_name = sub("_.*$", "", protein_id),
            path      = file.path(ppp_dir, paste0(protein_id, ".bgz"))) |>
     filter(gene_name %in% CYTOKINES)
-
-message(sprintf("\nNLRP3 inflammasome-associated cytokines (UKB-PPP, %d assays):",
-                nrow(assays)))
 
 PPP_COLS <- c("CHROM", "GENPOS", "ID", "ALLELE0", "ALLELE1", "A1FREQ",
               "INFO", "N", "TEST", "BETA", "SE", "CHISQ", "LOG10P", "EXTRA")
@@ -151,10 +144,6 @@ proteome <- ppp_mr |>
 
 cytokine_mr <- lapply(CYTOKINES, function(k) {
     r <- proteome |> filter(gene_name == k)
-    message(sprintf("  %-5s beta=%7.3f  n=%s  snps=%s  [%s]",
-                    k, r$ivw_beta, format(r$n_ppp, big.mark = ","), r$n_snps,
-                    r$protein_id))
-
     bind_rows(
         tibble(method = "IVW",
                estimate = r$ivw_beta, se = r$ivw_se, p = r$ivw_pval),
@@ -211,7 +200,6 @@ if (any(ivw$estimate > 0)) {
 # estimate far from -1 means the frozen exposure and this CRP release have
 # drifted apart, which would invalidate the scale printed on the figure axis.
 crp <- ivw$estimate[ivw$outcome == "CRP concentration"]
-message(sprintf("\nCRP scaling check: IVW = %.3f (expected near -1.00)", crp))
 if (abs(crp + 1) > 0.25) {
     warning(sprintf("CRP IVW is %.3f, further from -1.00 than expected", crp))
 }

@@ -47,7 +47,6 @@ plink2_bin <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
 tabix_bin  <- "/rds/user/nh608/hpc-work/software/micromamba/envs/sambcfenv/bin/tabix"
 
 n_cores <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = "1"))
-message(sprintf("using %d core(s)", n_cores))
 
 
 ## ----exposure-----------------------------------------------------------------
@@ -73,12 +72,10 @@ exposure <- fread(instrument_file, data.table = FALSE) %>%
 exposure <- exposure %>% mutate(beta_exposure = -beta_exposure)
 
 exposure_direction <- "1-unit DECREASE in cis-NLRP3 activity score"
-message("exposure oriented to: ", exposure_direction)
 print(exposure)
 
 
 ld_full <- interval_ld_matrix(exposure$SNP)
-message("LD matrix (INTERVAL WGS, signed, A1-oriented):")
 print(round(ld_full, 3))
 
 
@@ -94,7 +91,6 @@ assays <- readLines(ppp_manifest) %>%
         panel     = sub("^[^_]+_[^_]+_[^_]+_[^_]+_", "", protein_id)
     )
 
-missing_files <- assays %>% filter(!file.exists(path))
 message(sprintf("%d assays, %d unique gene symbols",
                 nrow(assays), n_distinct(assays$gene_name)))
 
@@ -107,7 +103,6 @@ if (smoke_test) {
     assays <- head(assays, ppp_limit)
     output_dir <- scratch_path("ppp_smoke_test")
     dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-    message("SMOKE TEST: ", nrow(assays), " assays, output -> ", output_dir)
 }
 
 
@@ -269,14 +264,8 @@ run_one <- function(i) {
     out
 }
 
-message("starting proteome-wide MR over ", nrow(assays), " assays ...")
-t0 <- Sys.time()
-
 results_list <- mclapply(seq_len(nrow(assays)), run_one,
                          mc.cores = n_cores, mc.preschedule = TRUE)
-
-message(sprintf("done in %.1f min",
-                as.numeric(difftime(Sys.time(), t0, units = "mins"))))
 
 # mclapply reports a worker crash as a try-error rather than throwing
 bad <- which(!vapply(results_list, is.list, logical(1)))
@@ -289,7 +278,6 @@ mr_all     <- map_dfr(results_list, "res")
 harmonised <- map_dfr(results_list, "harm")
 failures   <- map_dfr(results_list, "fail")
 
-message(sprintf("%d assays succeeded, %d failed", nrow(mr_all), nrow(failures)))
 if (nrow(failures) > 0) print(count(failures, reason, sort = TRUE))
 
 

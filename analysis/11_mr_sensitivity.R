@@ -23,7 +23,7 @@ dir.create(scratch, recursive = TRUE, showWarnings = FALSE)
 R2_GRID           <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
 COLOC_SNP         <- "1_247438293_C_T"      # rs12239046
 CLUMP_KB          <- 250
-CLUMP_P           <- 5e-8
+CLUMP_P           <- 5e-8  # helpers.R::ld_clump_local() hardcodes --clump-p1 5e-8; this records it.
 HIGH_LD_THRESHOLD <- 0.95
 HIGH_LD_WINDOW_KB <- 40
 PROXY_R2          <- 0.9
@@ -41,7 +41,6 @@ CAD_END   <- INSTRUMENT_END
 
 ## ---- one-time: panel, frequency filter, readouts --------------------------------
 panel_raw <- file.path(scratch, "region_raw")
-message("Cutting the INTERVAL panel to the locus ...")
 system2(plink2_bin, c("--bfile", ld_panel, "--chr", CHR,
                       "--from-bp", PANEL_START, "--to-bp", PANEL_END,
                       "--set-all-var-ids", shQuote("@_#_$1_$2"),
@@ -88,8 +87,6 @@ neut_for_freq <- prepare_readout("Neutrophil_count")
 freq_cmp <- inner_join(panel_freq[, c("ID", "freq_panel")],
                        neut_for_freq %>% transmute(ID = SNP, freq_gwas = A1_freq),
                        by = "ID") %>% mutate(delta = abs(freq_panel - freq_gwas))
-message(sprintf("frequency guard: %d discordant of %d dropped",
-                sum(freq_cmp$delta > FREQ_TOL, na.rm = TRUE), nrow(freq_cmp)))
 
 keep_file <- file.path(scratch, "concordant.txt")
 writeLines(freq_cmp %>% filter(delta <= FREQ_TOL) %>% pull(ID), keep_file)
@@ -99,7 +96,6 @@ system2(plink2_bin, c("--pfile", panel_raw, "--extract", keep_file,
         stdout = FALSE, stderr = FALSE)
 panel_ids <- freq_cmp %>% filter(delta <= FREQ_TOL) %>% pull(ID)
 
-message("Loading readouts ...")
 summary_stats <- list(
     eQTLs  = prepare_readout("NLRP3_expression", panel_ids),
     CRP    = prepare_readout("CRP",              panel_ids),
@@ -231,8 +227,6 @@ select_instruments <- function(clump_r2) {
 }
 
 ## ---- the CAD outcome: Aragam + MVP + FinnGen ------------------------------------
-message("Reading the CAD studies over chr", CHR, ":", CAD_START, "-", CAD_END, " ...")
-
 cad_raw <- list(
     "Aragam et al." = read_region(CAD_STUDIES$aragam, CHR, CAD_START, CAD_END) %>%
         transmute(join_pos = as.integer(pos),
@@ -259,7 +253,9 @@ cad_raw <- list(
                   ea = toupper(sub("^.*_[ACGT]+/([ACGT]+)$", "\\1", MarkerID)),
                   b  = as.numeric(BETA), se = as.numeric(SE))
 )
-for (n in names(cad_raw)) message(sprintf("  %-14s %d variants", n, nrow(cad_raw[[n]])))
+for (n in names(cad_raw))
+    message(sprintf("%-14s over chr%d:%d-%d: %d variants",
+                    n, CHR, CAD_START, CAD_END, nrow(cad_raw[[n]])))
 
 # Harmonise one exposure set against the three studies and meta-analyse per SNP.
 # The exposure is NEGATED here: every estimate reads per one-unit LOWER
@@ -298,17 +294,14 @@ mr_for <- function(meta, label, extra = list()) {
     wm <- mr_median(mi, weighting = "weighted")
     eg <- if (length(snps) >= 3) mr_egger(mi) else NULL
 
-    rows <- list()
-    if (!is.null(iv)) rows[[length(rows) + 1]] <- tibble(
-        method = "IVW", estimate = iv$Estimate, se = iv$StdError,
-        ci_lower = iv$CILower, ci_upper = iv$CIUpper, p = iv$Pvalue,
-        het_q = iv$Heter.Stat[1], het_p = iv$Heter.Stat[2])
-    if (!is.null(wm)) rows[[length(rows) + 1]] <- tibble(
-        method = "Weighted median", estimate = wm$Estimate, se = wm$StdError,
-        ci_lower = wm$CILower, ci_upper = wm$CIUpper, p = wm$Pvalue,
-        het_q = NA_real_, het_p = NA_real_)
-
-    out <- bind_rows(rows) %>%
+    out <- bind_rows(
+        tibble(method = "IVW", estimate = iv$Estimate, se = iv$StdError,
+               ci_lower = iv$CILower, ci_upper = iv$CIUpper, p = iv$Pvalue,
+               het_q = iv$Heter.Stat[1], het_p = iv$Heter.Stat[2]),
+        tibble(method = "Weighted median", estimate = wm$Estimate, se = wm$StdError,
+               ci_lower = wm$CILower, ci_upper = wm$CIUpper, p = wm$Pvalue,
+               het_q = NA_real_, het_p = NA_real_)
+    ) %>%
         mutate(label = label, n_snps = length(snps),
                egger_intercept   = if (is.null(eg)) NA_real_ else eg$Intercept,
                egger_intercept_p = if (is.null(eg)) NA_real_ else eg$Pvalue.Int,
@@ -318,7 +311,6 @@ mr_for <- function(meta, label, extra = list()) {
 }
 
 ## ---- A. the r2 sweep ------------------------------------------------------------
-message("\n=== A. r2 sweep ===")
 sweep_rows <- list(); sweep_inst <- list()
 for (r2 in R2_GRID) {
     ex <- select_instruments(r2)
@@ -347,23 +339,16 @@ write_tsv(bind_rows(sweep_inst), file.path(out_dir, "r2_sweep_instruments.tsv"))
 # instruments the rest of the pipeline uses, and the figure quietly becomes a
 # different analysis. Fail loudly instead.
 step00 <- file.path(results_dir, "00_instrument_selection", "nlrp3_instruments.tsv")
-if (file.exists(step00)) {
-    frozen <- fread(step00, data.table = FALSE)
-    mine <- sweep_inst[[which(R2_GRID == 0.1)]]
-    if (!setequal(frozen$SNP, mine$SNP)) {
-        stop("the r2 = 0.1 selection here no longer matches ", step00,
-             "\n  only step 00 : ", paste(setdiff(frozen$SNP, mine$SNP), collapse = ", "),
-             "\n  only step 11 : ", paste(setdiff(mine$SNP, frozen$SNP), collapse = ", "))
-    }
-    message("r2 = 0.1 selection matches step 00: ", nrow(mine), "/", nrow(frozen))
-} else {
-    message("NOTE: ", step00, " absent - run analysis/00_instrument_selection.R ",
-            "to enable the drift check")
+frozen <- fread(step00, data.table = FALSE)
+mine   <- sweep_inst[[which(R2_GRID == 0.1)]]
+if (!setequal(frozen$SNP, mine$SNP)) {
+    stop("the r2 = 0.1 selection here no longer matches ", step00,
+         "\n  only step 00 : ", paste(setdiff(frozen$SNP, mine$SNP), collapse = ", "),
+         "\n  only step 11 : ", paste(setdiff(mine$SNP, frozen$SNP), collapse = ", "))
 }
 
 
 ## ---- B. the single colocalising variant -----------------------------------------
-message("\n=== B. single-variant Wald ratio, ", COLOC_SNP, " (rs12239046) ===")
 ex01 <- select_instruments(0.1)
 cm01 <- cad_meta_for(ex01)
 one  <- cm01$meta %>% filter(SNP == COLOC_SNP)
@@ -382,12 +367,11 @@ single <- tibble(
     bx = one$bx, bxse = one$bxse, by = one$by, byse = one$byse,
     n_studies = one$n_studies)
 write_tsv(single, file.path(out_dir, "single_variant.tsv"))
-message(sprintf("  OR %.3f (%.3f, %.3f)  p = %.3g   [%d studies contribute]",
+message(sprintf("rs12239046 alone: OR %.3f (%.3f, %.3f)  p = %.3g   [%d studies contribute]",
                 exp(single$estimate), exp(single$ci_lower), exp(single$ci_upper),
                 single$p, single$n_studies))
 
 ## ---- C. leave-one-out at r2 = 0.1 -----------------------------------------------
-message("\n=== C. leave-one-out (r2 < 0.1) ===")
 loo <- bind_rows(
     mr_for(cm01$meta, "All instruments", extra = list(dropped = "none")),
     lapply(ex01$SNP, function(s)
@@ -429,7 +413,4 @@ if (any(is.na(ann$rsid))) {
         mutate(rsid = coalesce(rsid, rsid2)) %>% select(SNP, rsid)
 }
 write_tsv(ann, file.path(out_dir, "instrument_rsids.tsv"))
-message(sprintf("\nrsIDs: %d/%d (%d from the mapping file, %d from the summary statistics)",
-                sum(!is.na(ann$rsid)), nrow(ann), n_from_map,
-                sum(!is.na(ann$rsid)) - n_from_map))
 message("\nwrote ", out_dir)

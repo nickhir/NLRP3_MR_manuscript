@@ -9,27 +9,15 @@ suppressMessages({
     library(MendelianRandomization)
 })
 
-analysis_dir <- here::here()
-dataset_dir  <- file.path(analysis_dir, "datasets")
-output_dir   <- file.path(analysis_dir, "results", "05_mr_cad")
-dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+# CAD_STUDIES names the file and column spelling of each cohort, and every path
+# and constant below - dataset_dir, instrument_file, ld_panel, plink2_bin, CHR.
+# helpers.R supplies read_region() and load_instruments().
+source(here::here("config.R"))
+source(here::here("helpers.R"))
 
-# CAD_STUDIES names the file and column spelling of each cohort; helpers.R
-# supplies read_region() and load_instruments().
-source(file.path(analysis_dir, "config.R"))
-source(file.path(analysis_dir, "helpers.R"))
+output_dir <- step_dir("05_mr_cad")
 
-# The eight cis-NLRP3 instruments and the activity score, selected on the
-# INTERVAL panel by analysis/00_instrument_selection.R. Run that step first.
-instrument_file <- file.path(analysis_dir, "results", "00_instrument_selection",
-                             "nlrp3_instruments.tsv")
-ld_panel <- paste0(
-    "/rds/user/nh608/hpc-work/oxLDL/data/oxLDL_data/INTERVAL_reference/",
-    "WGS_reference/ld_panels/INTERVAL_allchr.GRCh38.alpha_sorted_alleles"
-)
-plink2_bin <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
-
-CHR          <- 1L
+# This step's own read window, deliberately not config.R's LOCUS_START/END.
 REGION_START <- 247390000L
 REGION_END   <- 247650000L
 
@@ -86,15 +74,15 @@ mvp <- read_region(CAD_STUDIES$mvp, CHR, REGION_START, REGION_END) %>%
               se = (log(as.numeric(ci_upper)) - log(as.numeric(ci_lower))) / (2 * qnorm(0.975))) %>%
     harmonise("MVP")
 
-# All of Us: long format, already subset to the instruments. MarkerID is
-# chr:pos_OTHER/EFFECT, so the allele after the slash is SAIGE's Allele2 and
-# the one BETA refers to.
 finngen <- read_region(CAD_STUDIES$finngen, CHR, REGION_START, REGION_END) %>%
     transmute(join_pos = as.integer(pos),
               ea = toupper(ea), oa = toupper(oa),
               b = as.numeric(beta), se = as.numeric(se)) %>%
     harmonise("FinnGen")
 
+# All of Us: long format, already subset to the instruments. MarkerID is
+# chr:pos_OTHER/EFFECT, so the allele after the slash is SAIGE's Allele2 and
+# the one BETA refers to.
 aou <- read_tsv(file.path(dataset_dir, "coronary_atherosclerosis_allofus_CV_404_2.tsv"),
                 show_col_types = FALSE) %>%
     mutate(across(where(is.character), ~ sub("\r$", "", .x))) %>%
@@ -160,7 +148,6 @@ print(as.data.frame(results %>% transmute(
     OR = sprintf("%.2f (%.2f, %.2f)", exp(beta), exp(ci_lower), exp(ci_upper)),
     p = signif(pval, 3))), row.names = FALSE)
 
-dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 write_tsv(results, file.path(output_dir, "cad_meta_studies.tsv"))
 write_tsv(per_snp, file.path(output_dir, "cad_meta_studies_per_snp.tsv"))
 cat(sprintf("\nwrote %s\n", file.path(output_dir, "cad_meta_studies.tsv")))
