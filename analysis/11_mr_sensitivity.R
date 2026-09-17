@@ -23,7 +23,6 @@ dir.create(scratch, recursive = TRUE, showWarnings = FALSE)
 R2_GRID           <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
 COLOC_SNP         <- "1_247438293_C_T"      # rs12239046
 CLUMP_KB          <- 250
-CLUMP_P           <- 5e-8
 HIGH_LD_THRESHOLD <- 0.95
 HIGH_LD_WINDOW_KB <- 40
 PROXY_R2          <- 0.9
@@ -39,42 +38,34 @@ PANEL_END   <- as.integer(INSTRUMENT_END   + 300e3)
 CAD_START <- INSTRUMENT_START
 CAD_END   <- INSTRUMENT_END
 
-stopifnot(file.exists(plink2_bin), file.exists(paste0(ld_panel, ".fam")))
-
 ## ---- one-time: panel, frequency filter, readouts --------------------------------
 panel_raw <- file.path(scratch, "region_raw")
-message("Cutting the INTERVAL panel to the locus ...")
 system2(plink2_bin, c("--bfile", ld_panel, "--chr", CHR,
                       "--from-bp", PANEL_START, "--to-bp", PANEL_END,
                       "--set-all-var-ids", shQuote("@_#_$1_$2"),
                       "--new-id-max-allele-len", 200, "--rm-dup", "force-first",
                       "--make-pgen", "--out", panel_raw, "--threads", 4),
         stdout = FALSE, stderr = FALSE)
-stopifnot(file.exists(paste0(panel_raw, ".pgen")))
 
 prepare_readout <- function(key, panel_ids = NULL) {
     cfg <- READOUTS[[key]]
-    stopifnot(!is.null(cfg), identical(cfg$build, "GRCh38"))
-    df <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
-                      CHR, INSTRUMENT_START, INSTRUMENT_END,
-                      extra_filter = cfg$extra_filter)
-    df$.chr  <- sub("^chr", "", as.character(df[[cfg$chr_col]]))
-    df$SNPid <- create_SNPid_vectorized(df, chr = ".chr", pos = cfg$pos_col,
-                                        other_allele = cfg$oa_col,
-                                        effect_allele = cfg$ea_col)
+    df <- read_region(cfg, CHR, INSTRUMENT_START, INSTRUMENT_END)
+    df$.chr  <- sub("^chr", "", as.character(df$chrom))
+    df$SNPid <- create_SNPid_vectorized(df, chr = ".chr", pos = "pos",
+                                        other_allele = "oa",
+                                        effect_allele = "ea")
     df <- df %>% filter(!grepl("D|I", SNPid))
-    df$.raw_eaf <- if (is.null(cfg$eaf_col)) NA_real_ else as.numeric(df[[cfg$eaf_col]])
-    df <- align_ASCII_sort(df, effect_allele = cfg$ea_col, other_allele = cfg$oa_col,
-                           beta = cfg$effect_col, ld_reference = NULL, status = TRUE)
-    p <- as.numeric(df[[cfg$p_col]])
-    if (isTRUE(cfg$neglog10_p)) p <- 10^(-p)
+    df$.raw_eaf <- if (is.null(cfg$eaf_col)) NA_real_ else as.numeric(df$eaf)
+    df <- align_ASCII_sort(df, effect_allele = "ea", other_allele = "oa",
+                           beta = "beta")
     out <- df %>%
+        mutate(p = if (isTRUE(cfg$neglog10_p)) 10^(-as.numeric(p)) else as.numeric(p)) %>%
         transmute(SNP = SNPid,
-                  position_hg38 = as.integer(.data[[cfg$pos_col]]),
-                  A1 = .data[[cfg$ea_col]], A2 = .data[[cfg$oa_col]],
+                  position_hg38 = as.integer(pos),
+                  A1 = ea, A2 = oa,
                   A1_freq = ifelse(flipped, 1 - .raw_eaf, .raw_eaf),
-                  beta = as.numeric(.data[[cfg$effect_col]]),
-                  se = as.numeric(.data[[cfg$se_col]]), p = p, n = cfg$n) %>%
+                  beta = as.numeric(beta),
+                  se = as.numeric(se), p = p, n = cfg$n) %>%
         filter(!is.na(beta), !is.na(se), se > 0, !is.na(p)) %>%
         distinct(SNP, .keep_all = TRUE)
     if (!is.null(panel_ids)) out <- out %>% filter(SNP %in% panel_ids)
@@ -95,8 +86,6 @@ neut_for_freq <- prepare_readout("Neutrophil_count")
 freq_cmp <- inner_join(panel_freq[, c("ID", "freq_panel")],
                        neut_for_freq %>% transmute(ID = SNP, freq_gwas = A1_freq),
                        by = "ID") %>% mutate(delta = abs(freq_panel - freq_gwas))
-message(sprintf("frequency guard: %d discordant of %d dropped",
-                sum(freq_cmp$delta > FREQ_TOL, na.rm = TRUE), nrow(freq_cmp)))
 
 keep_file <- file.path(scratch, "concordant.txt")
 writeLines(freq_cmp %>% filter(delta <= FREQ_TOL) %>% pull(ID), keep_file)
@@ -106,7 +95,6 @@ system2(plink2_bin, c("--pfile", panel_raw, "--extract", keep_file,
         stdout = FALSE, stderr = FALSE)
 panel_ids <- freq_cmp %>% filter(delta <= FREQ_TOL) %>% pull(ID)
 
-message("Loading readouts ...")
 summary_stats <- list(
     eQTLs  = prepare_readout("NLRP3_expression", panel_ids),
     CRP    = prepare_readout("CRP",              panel_ids),
@@ -119,18 +107,16 @@ availability <- function(snp) sum(vapply(summary_stats,
 ## ---- selection, parameterised on the clumping threshold -------------------------
 select_instruments <- function(clump_r2) {
     clumped <- lapply(names(summary_stats), function(tn)
-        ld_clump_local(dat = summary_stats[[tn]], clump_kb = CLUMP_KB,
-                       clump_r2 = clump_r2, clump_p = CLUMP_P,
-                       bfile = ld_reference, plink_bin = plink2_bin,
-                       verbose = FALSE)$ID)
+        ld_clump_local(variants = summary_stats[[tn]], bfile = ld_reference,
+                       r2 = clump_r2, kb = CLUMP_KB)$ID)
     names(clumped) <- names(summary_stats)
 
     friends <- lapply(names(clumped), function(tn) {
         lead <- clumped[[tn]]
         if (length(lead) == 0) return(NULL)
         res <- get_high_ld_snps(lead, reference = ld_reference,
-                                ld_threshold = HIGH_LD_THRESHOLD,
-                                window_kb = HIGH_LD_WINDOW_KB, verbose = FALSE) %>%
+                                r2 = HIGH_LD_THRESHOLD,
+                                kb = HIGH_LD_WINDOW_KB) %>%
             select(ID_A, ID_B, UNPHASED_R2)
         rbind(res, data.frame(ID_A = lead, ID_B = lead, UNPHASED_R2 = 1))
     })
@@ -143,7 +129,6 @@ select_instruments <- function(clump_r2) {
         bl <- x %>% group_by(ID_A) %>% group_split() %>% purrr::map(~ pull(.x, ID_B))
         for (i in seq_along(bl)) flat[[sprintf("%s_LD_block%d", tn, i)]] <- bl[[i]]
     }
-    stopifnot(length(flat) > 0)
 
     block_snps  <- lapply(flat, unique)
     block_names <- names(flat)
@@ -155,7 +140,6 @@ select_instruments <- function(clump_r2) {
                                                          diag = FALSE))$membership
     comp_list <- split(names(membership), membership)
     comp_list <- comp_list[vapply(comp_list, length, 1L) > 1]
-    stopifnot(length(comp_list) > 0)
 
     shared <- lapply(names(comp_list), function(id) {
         b <- comp_list[[id]]
@@ -180,8 +164,7 @@ select_instruments <- function(clump_r2) {
     need_proxy <- instruments[vapply(instruments, availability, 1L) != 4]
     if (length(need_proxy) > 0) {
         hl <- get_high_ld_snps(need_proxy, reference = ld_reference,
-                               ld_threshold = PROXY_R2, window_kb = PROXY_WINDOW_KB,
-                               verbose = FALSE)
+                               r2 = PROXY_R2, kb = PROXY_WINDOW_KB)
         if (nrow(hl) > 0) {
             reps <- lapply(unique(hl$ID_A), function(s) {
                 cand <- hl %>% filter(ID_A == s)
@@ -211,7 +194,6 @@ select_instruments <- function(clump_r2) {
     }
     beta_m <- effect_matrix("beta")
     se_m   <- effect_matrix("se")[rownames(beta_m), colnames(beta_m), drop = FALSE]
-    stopifnot(nrow(beta_m) >= 2)
 
     pca <- prcomp(beta_m, center = TRUE, scale. = TRUE)
     loadings <- pca$rotation[, 1]
@@ -244,28 +226,21 @@ select_instruments <- function(clump_r2) {
 }
 
 ## ---- the CAD outcome: Aragam + MVP + FinnGen ------------------------------------
-message("Reading the CAD studies over chr", CHR, ":", CAD_START, "-", CAD_END, " ...")
-
 cad_raw <- list(
-    "Aragam et al." = read_region(file.path(dataset_dir, "coronary_artery_disease_aragam_GCST90132314.h.tsv.gz"),
-                                  "chromosome", "base_pair_location",
-                                  CHR, CAD_START, CAD_END) %>%
-        transmute(join_pos = as.integer(base_pair_location),
-                  ea = toupper(effect_allele), oa = toupper(other_allele),
-                  b = as.numeric(beta), se = as.numeric(standard_error)),
-    # MVP reports an odds ratio with a CI; standard_error is NA
-    "MVP" = read_region(file.path(dataset_dir, "coronary_atherosclerosis_mvp_GCST90475936.h.tsv.gz"),
-                        "chromosome", "base_pair_location",
-                        CHR, CAD_START, CAD_END) %>%
-        transmute(join_pos = as.integer(base_pair_location),
-                  ea = toupper(effect_allele), oa = toupper(other_allele),
-                  b  = log(as.numeric(odds_ratio)),
-                  se = (log(as.numeric(ci_upper)) - log(as.numeric(ci_lower))) / (2 * qnorm(0.975))),
-    "FinnGen" = read_region(file.path(dataset_dir, "coronary_atherosclerosis_finngen_R12.gz"),
-                            "#chrom", "pos", CHR, CAD_START, CAD_END) %>%
+    "Aragam et al." = read_region(CAD_STUDIES$aragam, CHR, CAD_START, CAD_END) %>%
         transmute(join_pos = as.integer(pos),
-                  ea = toupper(alt), oa = toupper(ref),
-                  b = as.numeric(beta), se = as.numeric(sebeta)),
+                  ea = toupper(ea), oa = toupper(oa),
+                  b = as.numeric(beta), se = as.numeric(se)),
+    # MVP reports an odds ratio with a CI; standard_error is NA
+    "MVP" = read_region(CAD_STUDIES$mvp, CHR, CAD_START, CAD_END) %>%
+        transmute(join_pos = as.integer(pos),
+                  ea = toupper(ea), oa = toupper(oa),
+                  b  = log(as.numeric(beta)),
+                  se = (log(as.numeric(ci_upper)) - log(as.numeric(ci_lower))) / (2 * qnorm(0.975))),
+    "FinnGen" = read_region(CAD_STUDIES$finngen, CHR, CAD_START, CAD_END) %>%
+        transmute(join_pos = as.integer(pos),
+                  ea = toupper(ea), oa = toupper(oa),
+                  b = as.numeric(beta), se = as.numeric(se)),
     # Long format, already subset to the published eight. MarkerID is
     # chr:pos_OTHER/EFFECT, so the allele after the slash is what BETA refers to.
     "All of Us" = read_tsv(file.path(dataset_dir, "coronary_atherosclerosis_allofus_CV_404_2.tsv"),
@@ -277,7 +252,9 @@ cad_raw <- list(
                   ea = toupper(sub("^.*_[ACGT]+/([ACGT]+)$", "\\1", MarkerID)),
                   b  = as.numeric(BETA), se = as.numeric(SE))
 )
-for (n in names(cad_raw)) message(sprintf("  %-14s %d variants", n, nrow(cad_raw[[n]])))
+for (n in names(cad_raw))
+    message(sprintf("%-14s over chr%d:%d-%d: %d variants",
+                    n, CHR, CAD_START, CAD_END, nrow(cad_raw[[n]])))
 
 # Harmonise one exposure set against the three studies and meta-analyse per SNP.
 # The exposure is NEGATED here: every estimate reads per one-unit LOWER
@@ -312,21 +289,18 @@ mr_for <- function(meta, label, extra = list()) {
     ld <- interval_ld_matrix(snps)
     mi <- mr_input(bx = meta$bx, bxse = meta$bxse, by = meta$by, byse = meta$byse,
                    snps = snps, correlation = ld[snps, snps])
-    iv <- tryCatch(mr_ivw(mi), error = function(e) NULL)
-    wm <- tryCatch(mr_median(mi, weighting = "weighted"), error = function(e) NULL)
-    eg <- if (length(snps) >= 3) tryCatch(mr_egger(mi), error = function(e) NULL) else NULL
+    iv <- mr_ivw(mi)
+    wm <- mr_median(mi, weighting = "weighted")
+    eg <- if (length(snps) >= 3) mr_egger(mi) else NULL
 
-    rows <- list()
-    if (!is.null(iv)) rows[[length(rows) + 1]] <- tibble(
-        method = "IVW", estimate = iv$Estimate, se = iv$StdError,
-        ci_lower = iv$CILower, ci_upper = iv$CIUpper, p = iv$Pvalue,
-        het_q = iv$Heter.Stat[1], het_p = iv$Heter.Stat[2])
-    if (!is.null(wm)) rows[[length(rows) + 1]] <- tibble(
-        method = "Weighted median", estimate = wm$Estimate, se = wm$StdError,
-        ci_lower = wm$CILower, ci_upper = wm$CIUpper, p = wm$Pvalue,
-        het_q = NA_real_, het_p = NA_real_)
-
-    out <- bind_rows(rows) %>%
+    out <- bind_rows(
+        tibble(method = "IVW", estimate = iv$Estimate, se = iv$StdError,
+               ci_lower = iv$CILower, ci_upper = iv$CIUpper, p = iv$Pvalue,
+               het_q = iv$Heter.Stat[1], het_p = iv$Heter.Stat[2]),
+        tibble(method = "Weighted median", estimate = wm$Estimate, se = wm$StdError,
+               ci_lower = wm$CILower, ci_upper = wm$CIUpper, p = wm$Pvalue,
+               het_q = NA_real_, het_p = NA_real_)
+    ) %>%
         mutate(label = label, n_snps = length(snps),
                egger_intercept   = if (is.null(eg)) NA_real_ else eg$Intercept,
                egger_intercept_p = if (is.null(eg)) NA_real_ else eg$Pvalue.Int,
@@ -336,7 +310,6 @@ mr_for <- function(meta, label, extra = list()) {
 }
 
 ## ---- A. the r2 sweep ------------------------------------------------------------
-message("\n=== A. r2 sweep ===")
 sweep_rows <- list(); sweep_inst <- list()
 for (r2 in R2_GRID) {
     ex <- select_instruments(r2)
@@ -365,28 +338,19 @@ write_tsv(bind_rows(sweep_inst), file.path(out_dir, "r2_sweep_instruments.tsv"))
 # instruments the rest of the pipeline uses, and the figure quietly becomes a
 # different analysis. Fail loudly instead.
 step00 <- file.path(results_dir, "00_instrument_selection", "nlrp3_instruments.tsv")
-if (file.exists(step00)) {
-    frozen <- fread(step00, data.table = FALSE)
-    mine <- sweep_inst[[which(R2_GRID == 0.1)]]
-    if (!setequal(frozen$SNP, mine$SNP)) {
-        stop("the r2 = 0.1 selection here no longer matches ", step00,
-             "\n  only step 00 : ", paste(setdiff(frozen$SNP, mine$SNP), collapse = ", "),
-             "\n  only step 11 : ", paste(setdiff(mine$SNP, frozen$SNP), collapse = ", "))
-    }
-    message("r2 = 0.1 selection matches step 00: ", nrow(mine), "/", nrow(frozen))
-} else {
-    message("NOTE: ", step00, " absent - run analysis/00_instrument_selection.R ",
-            "to enable the drift check")
+frozen <- fread(step00, data.table = FALSE)
+mine   <- sweep_inst[[which(R2_GRID == 0.1)]]
+if (!setequal(frozen$SNP, mine$SNP)) {
+    stop("the r2 = 0.1 selection here no longer matches ", step00,
+         "\n  only step 00 : ", paste(setdiff(frozen$SNP, mine$SNP), collapse = ", "),
+         "\n  only step 11 : ", paste(setdiff(mine$SNP, frozen$SNP), collapse = ", "))
 }
 
 
 ## ---- B. the single colocalising variant -----------------------------------------
-message("\n=== B. single-variant Wald ratio, ", COLOC_SNP, " (rs12239046) ===")
 ex01 <- select_instruments(0.1)
-stopifnot(COLOC_SNP %in% ex01$SNP)
 cm01 <- cad_meta_for(ex01)
 one  <- cm01$meta %>% filter(SNP == COLOC_SNP)
-stopifnot(nrow(one) == 1)
 
 # Wald ratio with the first-order (NOME) standard error: the exposure is
 # estimated on 4,732-575,531 people and is far more precise than the outcome,
@@ -402,12 +366,11 @@ single <- tibble(
     bx = one$bx, bxse = one$bxse, by = one$by, byse = one$byse,
     n_studies = one$n_studies)
 write_tsv(single, file.path(out_dir, "single_variant.tsv"))
-message(sprintf("  OR %.3f (%.3f, %.3f)  p = %.3g   [%d studies contribute]",
+message(sprintf("rs12239046 alone: OR %.3f (%.3f, %.3f)  p = %.3g   [%d studies contribute]",
                 exp(single$estimate), exp(single$ci_lower), exp(single$ci_upper),
                 single$p, single$n_studies))
 
 ## ---- C. leave-one-out at r2 = 0.1 -----------------------------------------------
-message("\n=== C. leave-one-out (r2 < 0.1) ===")
 loo <- bind_rows(
     mr_for(cm01$meta, "All instruments", extra = list(dropped = "none")),
     lapply(ex01$SNP, function(s)
@@ -432,18 +395,15 @@ ann <- tibble(SNP = ex01$SNP, rsid = vapply(ex01$SNP, function(s) {
     hit <- rsid_map$rsid[rsid_map$variant_id %in% key(s)]
     if (length(hit)) hit[1] else NA_character_
 }, character(1)))
-n_from_map <- sum(!is.na(ann$rsid))
 
 # The mapping file misses the two rarest instruments, so fall back to the
 # summary statistics' own rsID columns - the same two-source approach
 # analysis/08_il1rn_positive_control.R uses.
 if (any(is.na(ann$rsid))) {
     fallback <- bind_rows(lapply(
-        list(list(f = READOUTS$Neutrophil_count$file, chr = "hm_chrom", pos = "hm_pos", id = "hm_rsid"),
-             list(f = READOUTS$CRP$file,              chr = "hm_chrom", pos = "hm_pos", id = "hm_rsid"),
-             list(f = READOUTS$GlycA$file, chr = "chromosome", pos = "base_pair_location", id = "rsid")),
-        function(cfg) read_region(cfg$f, cfg$chr, cfg$pos, CHR, INSTRUMENT_START, INSTRUMENT_END) %>%
-            transmute(pos_hg38 = as.integer(.data[[cfg$pos]]), rsid2 = as.character(.data[[cfg$id]]))
+        READOUTS[c("Neutrophil_count", "CRP", "GlycA")],
+        function(cfg) read_region(cfg, CHR, INSTRUMENT_START, INSTRUMENT_END) %>%
+            transmute(pos_hg38 = as.integer(pos), rsid2 = as.character(rsid))
     )) %>% filter(!is.na(rsid2), grepl("^rs", rsid2)) %>% distinct(pos_hg38, .keep_all = TRUE)
     ann <- ann %>%
         mutate(pos_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2L))) %>%
@@ -451,7 +411,4 @@ if (any(is.na(ann$rsid))) {
         mutate(rsid = coalesce(rsid, rsid2)) %>% select(SNP, rsid)
 }
 write_tsv(ann, file.path(out_dir, "instrument_rsids.tsv"))
-message(sprintf("\nrsIDs: %d/%d (%d from the mapping file, %d from the summary statistics)",
-                sum(!is.na(ann$rsid)), nrow(ann), n_from_map,
-                sum(!is.na(ann$rsid)) - n_from_map))
 message("\nwrote ", out_dir)

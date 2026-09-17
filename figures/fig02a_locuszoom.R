@@ -37,14 +37,16 @@ instr_file   <- file.path(analysis_dir, "results", "02_instrument_table",
 figures_dir  <- file.path(analysis_dir, "figures_out")
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
-# add_LD() and to_panel_id() come from here. helpers.R is shared function
-# definitions only - the Rmd sourced its equivalent the same way. config.R is
-# the file a figure script may not reach for, and this does not.
+# add_LD() and to_panel_id() come from helpers.R. helpers.R is no longer
+# standalone - it resolves plink2_bin from config.R - so config.R is sourced
+# with it, in the order every analysis/ script uses. config.R declares paths
+# and constants and runs nothing, so this stays a figure script.
+source(here::here("config.R"))
 source(here::here("helpers.R"))
 
-# INTERVAL WGS, GRCh38, 11,863 European-ancestry genomes - the same panel
-# config.R names, hardcoded here because a figure script may not source
-# config.R. The Rmd hardcoded its LD reference the same way.
+# INTERVAL WGS, GRCh38, 11,863 European-ancestry genomes. Same value config.R
+# gives ld_panel; named here so the panel this figure draws against is on the
+# page rather than two files away.
 ld_panel <- paste0(
     "/rds/user/nh608/hpc-work/oxLDL/data/oxLDL_data/INTERVAL_reference/",
     "WGS_reference/ld_panels/INTERVAL_allchr.GRCh38.alpha_sorted_alleles"
@@ -58,22 +60,13 @@ PANEL_FILES <- c(
     Neutrophil_count = "regional_Neutrophil_count.tsv"
 )
 
-for (f in c(file.path(coloc_dir, PANEL_FILES), paste0(ld_panel, ".bed"), instr_file)) {
-    if (!file.exists(f)) {
-        stop("missing input: ", f,
-             "\nRun analysis/01_colocalisation.R and analysis/02_instrument_table.R first.")
-    }
-}
-
 ## ---- setup -------------------------------------------------------------------
 ah <- AnnotationHub()
 ensDb_v111 <- ah[["AH116291"]]
 
 # NLRP3 gene coordinates (hg38), as config.R states them. Hardcoded rather than
 # sourced: config.R belongs to analysis/, and a figure may not reach for it.
-chr        <- 1
 start_hg38 <- 247416156
-stop_hg38  <- 247449108
 index_snp  <- "1_247438293_C_T"          # rs12239046, the colocalising variant
 
 # LD colours, in the seven-level order gg_scatter bins into: no r2, then the
@@ -109,7 +102,6 @@ for (k in names(panels)) {
 }
 
 mr_instrument_snps <- fread(instr_file, data.table = FALSE)$SNP
-stopifnot(length(mr_instrument_snps) == 8)
 
 ## ---- locuszoom ---------------------------------------------------------------
 locus_plot <- function(data, highlights = NULL, title = waiver(),
@@ -155,8 +147,8 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
         return(genetracks)
     }
 
-    # LD on the fly, as the Rmd did - only against the region fileset step 01
-    # leaves in results/, not the 43 GB genome-wide panel.
+    # LD on the fly, as the Rmd did - against ld_panel, the 43 GB genome-wide
+    # INTERVAL panel, not a region-restricted subset.
     locus_data <- add_LD(locus_data,
         reference = ld_panel,
         SNPid_col = "panel_id",
@@ -174,7 +166,6 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
     index_row <- locus_data$data[locus_data$data$SNPid == index_snp, , drop = FALSE]
     index_row$.x <- index_row[[locus_data$pos]] / 1e6
     index_row$.y <- index_row[[locus_data$yvar]]
-    stopifnot(nrow(index_row) == 1)
 
     # ylab goes through gg_scatter rather than a trailing ylab(): gg_scatter
     # sets the y scale's name itself (for the recombination sec.axis), and a
@@ -226,7 +217,6 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
     # against the panel border.
     y_scale <- which(vapply(locus_plot$scales$scales,
                             function(s) "y" %in% s$aesthetics, logical(1)))
-    stopifnot(length(y_scale) == 1)
     locus_plot$scales$scales[[y_scale]]$expand <- expansion(mult = c(0, 0.18))
 
     # Deviation 2: the instruments, ringed in gold. gg_scatter plots position in

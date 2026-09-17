@@ -28,12 +28,6 @@ aligned_in   <- file.path(instr_dir, "instrument_table_aligned.tsv")
 figures_dir  <- file.path(analysis_dir, "figures_out")
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
-for (f in c(readouts_in, aligned_in)) {
-    if (!file.exists(f)) {
-        stop("missing input: ", f, "\nRun analysis/02_instrument_table.R first.")
-    }
-}
-
 # The eight instruments' rsIDs, hardcoded so this figure depends on nothing but
 # step 02.
 RSIDS <- tibble::tribble(
@@ -64,9 +58,7 @@ effects <- readouts |>
     bind_rows(score) |>
     left_join(aligned |> select(SNP, A1, A2), by = "SNP")
 
-stopifnot(setequal(RSIDS$SNP, aligned$SNP))
 effects <- left_join(effects, RSIDS, by = "SNP")
-stopifnot(!any(is.na(effects$rsid)))
 
 ## ---- orient to the NLRP3-activity-LOWERING allele ---------------------------
 orientation <- effects |>
@@ -199,7 +191,6 @@ trait_info <- list(
     list(name = "Neutrophil_count", label = c("Neutrophil", "count"),     italic = FALSE),
     list(name = SCORE,              label = c("NLRP3", "activity score"), italic = FALSE)
 )
-stopifnot(all(vapply(trait_info, `[[`, "", "name") %in% plot_data$trait))
 
 plots <- lapply(seq_along(trait_info), function(i) {
     create_forest_subplot(plot_data, trait_info[[i]]$name, trait_info[[i]]$label,

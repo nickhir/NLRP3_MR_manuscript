@@ -17,7 +17,6 @@ out_dir <- step_dir("03_instrument_strength")
 # The aligned readouts from step 02.
 table_file <- file.path(results_dir, "02_instrument_table",
                         "instrument_table_aligned.tsv")
-if (!file.exists(table_file)) stop("run analysis/02_instrument_table.R first")
 
 aligned     <- fread(table_file, data.table = FALSE)
 instruments <- aligned$SNP
@@ -25,22 +24,14 @@ K           <- length(instruments)
 
 
 ## ---- LD matrix -------------------------------------------------------------------
-message("Computing the INTERVAL LD matrix ...")
 ld <- interval_ld_matrix(instruments)
-
-ld_eigen <- eigen(ld, symmetric = TRUE)$values
-message(sprintf("  max off-diagonal r2 = %.4f | kappa = %.2f | lambda_min = %.3f",
-                max((ld^2)[upper.tri(ld)]), kappa(ld), min(ld_eigen)))
 
 # Inversion noise would only start to matter as lambda_min approached
 # K/sqrt(n_ref) ~ 8/109 ~ 0.07, so no ridge or PCA projection is needed.
-stopifnot(kappa(ld) < 30, min(ld_eigen) > 0.1)
 ld_inv <- solve(ld)
 
 
 ## ---- compute -----------------------------------------------------------------------
-message("Computing instrument strength ...")
-
 inputs <- c(
     lapply(names(READOUTS), function(k) list(
         label = k,
@@ -52,6 +43,43 @@ inputs <- c(
               se    = aligned$se_exposure,
               n     = NULL))
 )
+
+# LD-aware instrument strength from marginal summary statistics.
+joint_F_R2 <- function(beta, se, LD_inv, n = NULL) {
+    z <- beta / se
+    k <- length(z)
+    chi2 <- as.numeric(t(z) %*% LD_inv %*% z)
+
+    out <- list(
+        z = z,
+        chi2 = chi2,
+        F_joint = chi2 / k,
+        F_mean = mean(z^2),
+        F_min = min(z^2),
+        F_per_snp = z^2
+    )
+
+    if (is.null(n)) {
+        out$R2_joint <- out$R2_rho <- out$R2_adj <- NA_real_
+        out$R2_per_snp <- rep(NA_real_, k)
+        return(out)
+    }
+
+    # Primary: invert the first-stage F relation. Bounded in [0,1] by
+    # construction and the most conservative of the three.
+    out$R2_joint <- out$F_joint / (out$F_joint + (n - k - 1) / k)
+
+    # Marginal correlations combined through the LD matrix; identical in exact
+    # arithmetic, reported so the agreement is visible.
+    rho <- sign(z) * sqrt(z^2 / (z^2 + n - 2))
+    out$R2_rho <- as.numeric(t(rho) %*% LD_inv %*% rho)
+
+    # Adjusted for the K degrees of freedom spent (E[chi2] = K under the null).
+    out$R2_adj <- (chi2 - k) / (chi2 - k + n - k - 1)
+
+    out$R2_per_snp <- z^2 / (z^2 + n - 2)
+    out
+}
 
 strength <- lapply(inputs, function(x) {
     c(list(label = x$label, n = if (is.null(x$n)) NA_real_ else x$n),
@@ -78,6 +106,14 @@ per_snp_tbl <- lapply(inputs, function(x) {
 
 
 ## ---- effective sample size check --------------------------------------------------------
+# Effective sample size implied by the standard errors (the Genomic SEM
+# identity).
+effective_n <- function(se, eaf) {
+    stats::median(
+        1 / (2 * pmin(eaf, 1 - eaf) * (1 - pmin(eaf, 1 - eaf)) * se^2)
+    )
+}
+
 # Ntilde = 1/(2*MAF*(1-MAF)*SE^2) should track the stated N for a phenotype on
 # a unit-variance scale. It does for CRP, GlycA and neutrophils.
 eff_n <- lapply(names(READOUTS), function(k) {

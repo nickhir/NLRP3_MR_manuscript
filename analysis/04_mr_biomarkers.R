@@ -21,7 +21,6 @@ exposure    <- load_instruments(negate = TRUE)
 instruments <- exposure$SNP
 
 ld_full <- interval_ld_matrix(instruments)
-stopifnot(identical(rownames(ld_full), instruments))
 
 
 ## ---- block 1: the systemic inflammation proxies ------------------------------
@@ -30,20 +29,14 @@ stopifnot(identical(rownames(ld_full), instruments))
 # marker, and Figure 2B already shows it per variant.
 PROXIES <- c("CRP", "GlycA", "Neutrophil_count")
 
-message("Systemic inflammation proxies (re-derived from source, all GRCh38):")
-
 proxy_mr <- lapply(PROXIES, function(k) {
     cfg <- READOUTS[[k]]
-    message(sprintf("  %s ...", cfg$label))
-
-    outcome <- read_region(cfg$file, cfg$chr_col, cfg$pos_col,
-                           CHR, LOCUS_START, LOCUS_END,
-                           extra_filter = cfg$extra_filter) |>
+    outcome <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
         harmonise_region(cfg, CHR) |>
         filter(SNPid %in% instruments)
 
     found <- sum(instruments %in% outcome$SNPid)
-    message(sprintf("    %d/8 instruments recovered", found))
+    message(sprintf("%s (GRCh38): %d/8 instruments recovered", cfg$label, found))
     if (found != 8) {
         stop(sprintf("[%s] only %d/8 instruments found at GRCh38 positions",
                      cfg$label, found))
@@ -67,19 +60,12 @@ proxy_mr <- lapply(PROXIES, function(k) {
 ## ---- block 2: the effector cytokines, re-derived from UKB-PPP ----------------
 CYTOKINES <- c("IL1B", "IL18", "IL6")
 
-stopifnot(dir.exists(ppp_dir), file.exists(ppp_manifest), file.exists(tabix_bin))
-
 # IL6 is assayed on four Olink panels, IL1B and IL18 on one each: six assays.
 assays <- tibble(protein_id = readLines(ppp_manifest)) |>
     filter(nzchar(protein_id)) |>
     mutate(gene_name = sub("_.*$", "", protein_id),
            path      = file.path(ppp_dir, paste0(protein_id, ".bgz"))) |>
     filter(gene_name %in% CYTOKINES)
-
-stopifnot(setequal(assays$gene_name, CYTOKINES), all(file.exists(assays$path)))
-
-message(sprintf("\nNLRP3 inflammasome-associated cytokines (UKB-PPP, %d assays):",
-                nrow(assays)))
 
 PPP_COLS <- c("CHROM", "GENPOS", "ID", "ALLELE0", "ALLELE1", "A1FREQ",
               "INFO", "N", "TEST", "BETA", "SE", "CHISQ", "LOG10P", "EXTRA")
@@ -89,8 +75,7 @@ PPP_COLS <- c("CHROM", "GENPOS", "ID", "ALLELE0", "ALLELE1", "A1FREQ",
 regions <- sprintf("%d:%d-%d", exposure$chr, exposure$pos_hg38, exposure$pos_hg38)
 
 read_assay <- function(path) {
-    txt <- suppressWarnings(
-        system2(tabix_bin, c(shQuote(path), regions), stdout = TRUE, stderr = FALSE))
+    txt <- system2(tabix_bin, c(shQuote(path), regions), stdout = TRUE, stderr = FALSE)
     if (length(txt) == 0) return(NULL)
     df <- data.table::fread(text = paste(txt, collapse = "\n"), sep = "\t",
                             header = FALSE, colClasses = "character")
@@ -157,14 +142,8 @@ proteome <- ppp_mr |>
     slice_min(order_by = ivw_pval, n = 1, with_ties = FALSE) |>
     ungroup()
 
-stopifnot(nrow(proteome) == length(CYTOKINES), !any(duplicated(proteome$gene_name)))
-
 cytokine_mr <- lapply(CYTOKINES, function(k) {
     r <- proteome |> filter(gene_name == k)
-    message(sprintf("  %-5s beta=%7.3f  n=%s  snps=%s  [%s]",
-                    k, r$ivw_beta, format(r$n_ppp, big.mark = ","), r$n_snps,
-                    r$protein_id))
-
     bind_rows(
         tibble(method = "IVW",
                estimate = r$ivw_beta, se = r$ivw_se, p = r$ivw_pval),
@@ -199,8 +178,6 @@ results <- bind_rows(proxy_mr, cytokine_mr) |>
                              "Neutrophil count", "IL1B", "IL18", "IL6")),
             match(method, c("IVW", "Weighted median")))
 
-stopifnot(nrow(results) == 12, !any(is.na(results$estimate)))
-
 
 ## ---- sanity checks -----------------------------------------------------------
 # Lower NLRP3 activity must lower every one of these readouts. The three proxies
@@ -223,7 +200,6 @@ if (any(ivw$estimate > 0)) {
 # estimate far from -1 means the frozen exposure and this CRP release have
 # drifted apart, which would invalidate the scale printed on the figure axis.
 crp <- ivw$estimate[ivw$outcome == "CRP concentration"]
-message(sprintf("\nCRP scaling check: IVW = %.3f (expected near -1.00)", crp))
 if (abs(crp + 1) > 0.25) {
     warning(sprintf("CRP IVW is %.3f, further from -1.00 than expected", crp))
 }

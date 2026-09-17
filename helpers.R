@@ -1,7 +1,9 @@
 ## helpers.R - the shared function library.
 ##
 ## Region readers, INTERVAL LD, harmonisation, instrument loading, joint F/R2,
-## correlated MR and theme_Publication(). Sourced with config.R by analysis/.
+## correlated MR and theme_Publication(). Sourced by the analysis/ steps; most
+## also source config.R, but 09_proteome_mr.R does not, which is why it
+## defines ld_panel and plink2_bin itself.
 
 nlrp3_scratch <- function() {
     d <- getOption("nlrp3.scratch")
@@ -28,8 +30,8 @@ nlrp3_scratch <- function() {
 }
 
 # Drop-in replacements for tempfile() and file.path(tempdir(), ...).
-scratch_file <- function(pattern = "file", fileext = "") {
-    tempfile(pattern = pattern, tmpdir = nlrp3_scratch(), fileext = fileext)
+scratch_file <- function(fileext = "") {
+    tempfile(pattern = "file", tmpdir = nlrp3_scratch(), fileext = fileext)
 }
 
 scratch_path <- function(...) {
@@ -62,110 +64,135 @@ if (startsWith(tempdir(), "/tmp")) {
 
 ## ---- reading summary statistics ----------------------------------------------
 
-# Stream a file regardless of compression. Used to pipe into awk so that the
-# region filter happens before anything reaches R - the neutrophil file is 2 GB
-# gzipped and reading it whole is pointless.
-reader_cmd <- function(path) {
-    # .bgzip / .bgz are the Zoodsma metabolite releases: bgzip output, which is
-    # gzip-compatible, so zcat reads them. Without this they fall through to
-    # cat and R sees binary ("embedded nul", "invalid in this locale").
-    if (grepl("\\.(gz|bgz|bgzip)$", path)) {
-        return(sprintf("zcat %s", shQuote(path)))
-    }
-    if (grepl("\\.zip$", path)) {
-        return(sprintf("unzip -p %s", shQuote(path)))
-    }
-    sprintf("cat %s", shQuote(path))
-}
-
-header_of <- function(path, sep = c("tab", "whitespace")) {
-    sep <- match.arg(sep)
-    con <- pipe(paste(reader_cmd(path), "| head -n 1"), open = "r")
-    on.exit(close(con))
-    line <- readLines(con, n = 1)
-    if (sep == "tab") {
-        strsplit(line, "\t", fixed = TRUE)[[1]]
-    } else {
-        strsplit(trimws(line), "[ \t]+")[[1]]
-    }
-}
-
-col_index <- function(header, name, path) {
-    idx <- match(name, header)
-    if (is.na(idx)) {
-        stop(sprintf(
-            "column '%s' not found in %s\navailable: %s",
-            name,
-            basename(path),
-            paste(header, collapse = ", ")
-        ))
-    }
-    idx
-}
-
-# Read one chromosome-1 window out of a summary-statistics file.
-read_region <- function(
-    path,
-    chr_col,
-    pos_col,
-    chr,
-    start,
-    end,
-    sep = c("tab", "whitespace"),
-    extra_filter = NULL
-) {
-    sep <- match.arg(sep)
-    # `chr` is required, not defaulted to 1. The silent chromosome assumption
-    # this replaces is what made the function unusable at the chr2 IL1RN locus
-    # and forced analysis/08 to carry a private copy. Accepts 2L, "2" or "chr2".
-    stopifnot(length(chr) == 1L, !is.na(chr))
+# Read one chromosome window out of a summary-statistics file, given its
+# registry entry from config.R. Column names are standardised on the way in -
+# chrom, pos, ea, oa, beta, se, eaf, p, plus rsid, n, gene, ci_lower and
+# ci_upper wherever the entry names them - so every caller downstream works in
+# plain dplyr instead of df[[cfg$chr_col]]. Accepts 2L, "2" or "chr2" for `chr`.
+read_region <- function(cfg, chr, start, end) {
     chr <- sub("^chr", "", as.character(chr))
 
-    header <- header_of(path, sep)
-    ci <- col_index(header, chr_col, path)
-    pi <- col_index(header, pos_col, path)
-
-    region <- sprintf(
-        '(($%d=="%s" || $%d=="chr%s") && $%d>=%d && $%d<=%d)',
-        ci,
-        chr,
-        ci,
-        chr,
-        pi,
-        start,
-        pi,
-        end
+    # c() drops the NULL entries, so a config without eaf_col simply yields no
+    # eaf column and nothing asks fread for one.
+    cols <- c(
+        chrom = cfg$chr_col,
+        pos = cfg$pos_col,
+        ea = cfg$ea_col,
+        oa = cfg$oa_col,
+        beta = cfg$effect_col,
+        se = cfg$se_col,
+        eaf = cfg$eaf_col,
+        p = cfg$p_col,
+        rsid = cfg$rsid_col,
+        n = cfg$n_col,
+        gene = cfg$gene_col,
+        ci_lower = cfg$ci_lower_col,
+        ci_upper = cfg$ci_upper_col
     )
-    if (!is.null(extra_filter)) {
-        region <- paste(extra_filter, "&&", region)
-    }
 
-    awk <- if (sep == "tab") {
-        sprintf("awk -F'\\t' 'NR==1 || %s'", region)
-    } else {
-        sprintf("awk 'BEGIN{OFS=\"\\t\"} NR==1 || %s {$1=$1; print}'", region)
-    }
-
-    df <- data.table::fread(
-        cmd = paste(reader_cmd(path), "|", awk),
+    # fread does not stream a .gz: data.table decompresses the whole file into
+    # TMPDIR first, so a 2 GB gzipped input needs several GB of scratch for the
+    # duration of the call (unlinked on exit, so it does not accumulate across
+    # a loop). That is why the project's .Renviron points TMPDIR at RDS rather
+    # than /tmp, which is a small shared tmpfs on a compute node.
+    raw <- data.table::fread(
+        cfg$file,
+        # One registry entry - CARDIOMETABOLIC$BMI - is space-delimited.
+        sep = if (identical(cfg$sep, "whitespace")) " " else "\t",
+        select = unname(cols),
+        # chrom as text: "1" and "chr1" both occur, and comparing as text works
+        # for either. pos as numeric so that the window comparison below is
+        # arithmetic rather than lexical ("9" >= "10" is TRUE as text; 9 >= 10
+        # is not). Note the limit of that pin: data.table's colClasses only
+        # UPGRADES a type, so it lifts an integer or an all-NA/blank position
+        # column to double, but a column whose values force character - a
+        # literal "." in a position field - is left as character and fread does
+        # not complain. No registry file has one; closing that hole would need
+        # na.strings, which would rewrite the allele columns too.
+        colClasses = list(character = cfg$chr_col, numeric = cfg$pos_col),
         data.table = FALSE,
         showProgress = FALSE
     )
 
-    # fread can mangle a leading '#' in the first column name; restore the true
-    # header so lookups by name always work.
-    if (ncol(df) == length(header)) {
-        names(df) <- header
+    df <- raw |>
+        # all_of(), not any_of()/select(): a mistyped *_col must be an error
+        # here. fread(select=) only warns about a column it cannot find.
+        dplyr::select(dplyr::all_of(cols)) |>
+        dplyr::filter(
+            chrom %in% c(chr, paste0("chr", chr)),
+            pos >= start,
+            pos <= end
+        )
+    if (!is.null(cfg$gene)) {
+        df <- dplyr::filter(df, gene == cfg$gene)
     }
 
-    # Some releases - the INTERVAL eQTL files among them - carry unnamed
-    # trailing columns. Name them so downstream lookups never hit a "" name.
-    nm <- names(df)
-    blank <- is.na(nm) | nm == ""
-    if (any(blank)) {
-        nm[blank] <- paste0("unnamed", seq_len(sum(blank)))
-        names(df) <- nm
-    }
+    # Back to integer once the window comparison is done. A double position is
+    # pasted into the variant ID by create_SNPid_vectorized(), and R renders a
+    # double in whichever of fixed or scientific notation is shorter:
+    # as.character(113000000) is "1.13e+08", and chr2:113,000,000 sits inside
+    # step 08's window. Assembly coordinates are integers well under 2^31.
+    df$pos <- as.integer(df$pos)
+
+    # The whole-file read is the largest object any step holds. Drop it here
+    # rather than leaving it for the next iteration of a caller's loop.
+    rm(raw)
+    gc(verbose = FALSE, full = TRUE)
+    df
+}
+
+# Read a whole genome-wide file on the same standard names, for the three
+# mediation readers that select variants by something other than a window:
+# read_significant() (07a, a p threshold), thin_genome() (07b, one variant per
+# bin) and lookup_at() (below, an explicit variant list). Every one of them
+# feeds to_common(), so the column set is exactly what to_common() reads -
+# no rsid and no gene, because a genome-wide rsID column alone costs most of a
+# gigabyte and nothing downstream of these three looks at it.
+read_genome <- function(cfg) {
+    # Before the read, not after it: the caller's previous file is garbage by
+    # now, and collecting it here means it is gone before this fread allocates
+    # rather than while both are resident.
+    gc(verbose = FALSE, full = TRUE)
+
+    cols <- c(
+        chrom = cfg$chr_col,
+        pos = cfg$pos_col,
+        ea = cfg$ea_col,
+        oa = cfg$oa_col,
+        beta = cfg$effect_col,
+        se = cfg$se_col,
+        eaf = cfg$eaf_col,
+        p = cfg$p_col,
+        n = cfg$n_col,
+        nlog10 = cfg$nlog10_col,
+        ci_lower = cfg$ci_lower_col,
+        ci_upper = cfg$ci_upper_col
+    )
+
+    raw <- data.table::fread(
+        cfg$file,
+        sep = if (identical(cfg$sep, "whitespace")) " " else "\t",
+        select = unname(cols),
+        # chrom as text and pos as numeric for the same reasons as
+        # read_region(). p stays a STRING: to_common() recovers -log10(p) from
+        # the raw text, so an exponent past the double-precision floor (the
+        # strongest loci in a genome-wide file) survives instead of collapsing
+        # to zero.
+        colClasses = list(
+            character = c(cfg$chr_col, cfg$p_col),
+            numeric = cfg$pos_col
+        ),
+        data.table = FALSE,
+        showProgress = FALSE
+    )
+
+    df <- raw |>
+        dplyr::select(dplyr::all_of(cols)) |>
+        # Stripped once here rather than at each of the three call sites; the
+        # shell filters these replaced did the same before comparing or binning.
+        dplyr::mutate(chrom = sub("^chr", "", chrom), pos = as.integer(pos))
+
+    rm(raw)
     df
 }
 
@@ -175,8 +202,8 @@ read_region <- function(
 # Confirm a file is on the build it claims, by counting how many of the eight
 # instruments land at GRCh38 vs GRCh37 coordinates. Cheap, and it has caught
 # real mislabelling.
-verify_build <- function(df, pos_col, declared_build, label, exposure) {
-    pos <- as.integer(df[[pos_col]])
+verify_build <- function(df, declared_build, label, exposure) {
+    pos <- as.integer(df[["pos"]])
     n38 <- sum(exposure$pos_hg38 %in% pos)
     n19 <- sum(exposure$pos_hg19 %in% pos)
 
@@ -229,46 +256,42 @@ se_from_p <- function(beta, p) {
 
 # Put a regional dataset on the project's ASCII-sorted variant IDs
 # (CHR_POS_A1_A2 with A1 < A2) and flip beta onto A1.
-harmonise_region <- function(df, cfg, chr, pos_map = NULL, drop_indels = TRUE) {
-    pos_col <- cfg$pos_col
-
-    std <- df
-    std$.pos <- as.integer(std[[pos_col]])
-    std$.ea <- toupper(std[[cfg$ea_col]])
-    std$.oa <- toupper(std[[cfg$oa_col]])
-    std$.eff <- as.numeric(std[[cfg$effect_col]])
-
+harmonise_region <- function(df, cfg, chr, pos_map = NULL) {
+    # read_region() has already standardised the column names; cfg is still
+    # needed for effect_type, se_source, neglog10_p and build.
+    std <- dplyr::mutate(
+        df,
+        pos = as.integer(pos),
+        ea = toupper(ea),
+        oa = toupper(oa),
+        beta = as.numeric(beta)
+    )
     if (identical(cfg$effect_type, "OR")) {
-        std$.eff <- log(std$.eff)
+        std$beta <- log(std$beta)
     }
 
-    std$.se <- switch(
+    std$se <- switch(
         if (is.null(cfg$se_source)) "column" else cfg$se_source,
-        column = as.numeric(std[[cfg$se_col]]),
-        ci = se_from_ci(
-            as.numeric(std[[cfg$ci_lower_col]]),
-            as.numeric(std[[cfg$ci_upper_col]])
-        ),
-        p = se_from_p(std$.eff, as.numeric(std[[cfg$p_col]]))
+        column = as.numeric(std$se),
+        ci = se_from_ci(as.numeric(std$ci_lower), as.numeric(std$ci_upper)),
+        p = se_from_p(std$beta, as.numeric(std$p))
     )
 
-    std$.p <- if (is.null(cfg$p_col)) {
+    std$p <- if (is.null(cfg$p_col)) {
         NA_real_
     } else {
-        raw <- as.numeric(std[[cfg$p_col]])
+        raw <- as.numeric(std$p)
         if (isTRUE(cfg$neglog10_p)) 10^(-raw) else raw
     }
 
-    std <- std[!is.na(std$.eff) & !is.na(std$.se) & std$.se > 0, , drop = FALSE]
-    if (drop_indels) {
-        std <- std[
-            std$.ea %in%
-                c("A", "C", "G", "T") &
-                std$.oa %in% c("A", "C", "G", "T"),
-            ,
-            drop = FALSE
-        ]
-    }
+    std <- dplyr::filter(
+        std,
+        !is.na(beta),
+        !is.na(se),
+        se > 0,
+        ea %in% c("A", "C", "G", "T"),
+        oa %in% c("A", "C", "G", "T")
+    )
     if (nrow(std) == 0) {
         return(NULL)
     }
@@ -278,28 +301,26 @@ harmonise_region <- function(df, cfg, chr, pos_map = NULL, drop_indels = TRUE) {
         if (is.null(pos_map)) {
             stop("a GRCh37 input needs pos_map")
         }
-        m <- match(std$.pos, pos_map$pos_hg19)
+        m <- match(std$pos, pos_map$pos_hg19)
         std <- std[!is.na(m), , drop = FALSE]
-        std$.pos38 <- pos_map$pos_hg38[m[!is.na(m)]]
-    } else {
-        std$.pos38 <- std$.pos
+        std$pos <- pos_map$pos_hg38[m[!is.na(m)]]
     }
     if (nrow(std) == 0) {
         return(NULL)
     }
 
-    A1 <- pmin(std$.ea, std$.oa)
-    A2 <- pmax(std$.ea, std$.oa)
+    A1 <- pmin(std$ea, std$oa)
+    A2 <- pmax(std$ea, std$oa)
 
     tibble::tibble(
-        SNPid = paste(chr, std$.pos38, A1, A2, sep = "_"),
+        SNPid = paste(chr, std$pos, A1, A2, sep = "_"),
         chrom = chr,
-        pos = std$.pos38,
+        pos = std$pos,
         A1 = A1,
         A2 = A2,
-        beta = ifelse(std$.ea == A1, std$.eff, -std$.eff),
-        se = std$.se,
-        p = std$.p
+        beta = ifelse(std$ea == A1, std$beta, -std$beta),
+        se = std$se,
+        p = std$p
     ) |>
         dplyr::distinct(SNPid, .keep_all = TRUE)
 }
@@ -310,18 +331,99 @@ harmonise_region <- function(df, cfg, chr, pos_map = NULL, drop_indels = TRUE) {
 # The eight frozen instruments plus the cis-NLRP3 activity score, oriented so
 # that estimates read per one-unit DECREASE in the score. Only the "cis-NLRP3
 # trait" rows are read.
-load_instruments <- function(
-    path = instrument_file,
-    negate = TRUE,
-    check_freq = TRUE
-) {
-    if (!file.exists(path)) {
-        stop(
-            "instrument table not found:\n  ",
-            path,
-            "\nRun analysis/00_instrument_selection.R first."
+load_instruments <- function(path = instrument_file, negate = TRUE) {
+    # Panel allele frequency, oriented onto the ASCII-first allele of the
+    # variant ID, so it is directly comparable with an `A1 frequency` from
+    # summary statistics.
+    panel_allele_freq <- function(
+        snp_ids,
+        panel = ld_panel,
+        plink2 = plink2_bin,
+        threads = 2
+    ) {
+        tmp <- scratch_file()
+        writeLines(to_panel_id(snp_ids), paste0(tmp, ".extract"))
+
+        system2(
+            plink2,
+            c(
+                "--bfile",
+                panel,
+                "--extract",
+                paste0(tmp, ".extract"),
+                "--freq",
+                "--out",
+                tmp,
+                "--threads",
+                threads
+            ),
+            stdout = FALSE
+        )
+
+        fr <- utils::read.table(
+            paste0(tmp, ".afreq"),
+            header = TRUE,
+            comment.char = "",
+            check.names = FALSE
+        )
+        names(fr)[1] <- "CHROM"
+
+        SNP <- from_panel_id(fr$ID)
+        A1 <- vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3L)
+
+        tibble::tibble(
+            SNP = SNP,
+            # --freq reports the ALT frequency; ALT is A1 only when the panel's
+            # REF happens to be A2, which nothing guarantees.
+            freq_panel = ifelse(A1 == fr$ALT, fr$ALT_FREQS, 1 - fr$ALT_FREQS)
         )
     }
+
+    # Guard against the LD panel and the summary statistics meaning different
+    # variants by the same CHR_POS_A1_A2 name. Nothing downstream notices when
+    # they disagree.
+    check_panel_freq <- function(
+        snp_ids,
+        eaf,
+        label = "instruments",
+        panel = ld_panel,
+        plink2 = plink2_bin
+    ) {
+        fr <- panel_allele_freq(snp_ids, panel = panel, plink2 = plink2)
+        cmp <- tibble::tibble(SNP = snp_ids, freq_data = as.numeric(eaf)) |>
+            dplyr::inner_join(fr, by = "SNP") |>
+            dplyr::mutate(delta = abs(freq_panel - freq_data))
+
+        if (nrow(cmp) == 0) {
+            warning(sprintf(
+                "[%s] no variant found in the panel; frequency check skipped",
+                label
+            ))
+            return(invisible(cmp))
+        }
+
+        bad <- cmp[!is.na(cmp$delta) & cmp$delta > 0.05, , drop = FALSE]
+        if (nrow(bad) > 0) {
+            stop(sprintf(
+                "[%s] %d variant(s) disagree with the LD panel on A1 frequency by more than %.2f - the panel and the summary statistics are naming different variants:\n%s",
+                label,
+                nrow(bad),
+                0.05,
+                paste(
+                    sprintf(
+                        "  %s  panel %.4f  data %.4f  (d = %.4f)",
+                        bad$SNP,
+                        bad$freq_panel,
+                        bad$freq_data,
+                        bad$delta
+                    ),
+                    collapse = "\n"
+                )
+            ))
+        }
+        invisible(cmp)
+    }
+
     ex <- data.table::fread(path, data.table = FALSE) |>
         dplyr::transmute(
             SNP = SNP,
@@ -334,13 +436,6 @@ load_instruments <- function(
             se_exposure = as.numeric(se_exposure)
         ) |>
         dplyr::arrange(pos_hg38)
-
-    stopifnot(
-        nrow(ex) == 8,
-        all(ex$SNP == paste(ex$chr, ex$pos_hg38, ex$A1, ex$A2, sep = "_")),
-        all(ex$A1 < ex$A2),
-        !any(is.na(ex$beta_exposure))
-    )
 
     # GRCh37 positions for the same eight variants, for the outcome files still
     # released on that build. Produced with UCSC liftOver and cross-checked
@@ -357,18 +452,15 @@ load_instruments <- function(
         "1_247460342_C_G" , 247623644L
     )
     ex <- dplyr::left_join(ex, hg19, by = "SNP")
-    stopifnot(!any(is.na(ex$pos_hg19)))
 
     # Every instrument goes on to be paired with an INTERVAL LD matrix, so the
     # panel and the workbook must agree on which variant each ID names. See
     # check_panel_freq() for what goes wrong when they do not.
-    if (check_freq) {
-        check_panel_freq(
-            ex$SNP,
-            ex$eaf_exposure,
-            label = "cis-NLRP3 instruments"
-        )
-    }
+    check_panel_freq(
+        ex$SNP,
+        ex$eaf_exposure,
+        label = "cis-NLRP3 instruments"
+    )
 
     if (negate) {
         ex$beta_exposure <- -ex$beta_exposure
@@ -391,8 +483,6 @@ interval_ld_matrix <- function(
     plink2 = plink2_bin,
     threads = 2
 ) {
-    stopifnot(length(snp_ids) >= 2)
-
     panel_ids <- to_panel_id(snp_ids)
     tmp <- scratch_file()
     writeLines(panel_ids, paste0(tmp, ".extract"))
@@ -465,185 +555,17 @@ interval_ld_matrix <- function(
 }
 
 
-# Panel allele frequency, oriented onto the ASCII-first allele of the variant
-# ID, so it is directly comparable with an `A1 frequency` from summary
-# statistics.
-panel_allele_freq <- function(
-    snp_ids,
-    panel = ld_panel,
-    plink2 = plink2_bin,
-    threads = 2
-) {
-    tmp <- scratch_file()
-    writeLines(to_panel_id(snp_ids), paste0(tmp, ".extract"))
-
-    system2(
-        plink2,
-        c(
-            "--bfile",
-            panel,
-            "--extract",
-            paste0(tmp, ".extract"),
-            "--freq",
-            "--out",
-            tmp,
-            "--threads",
-            threads
-        ),
-        stdout = FALSE
-    )
-
-    if (!file.exists(paste0(tmp, ".afreq"))) {
-        stop("plink2 --freq produced no output for the requested variants")
-    }
-    fr <- utils::read.table(
-        paste0(tmp, ".afreq"),
-        header = TRUE,
-        comment.char = "",
-        check.names = FALSE
-    )
-    names(fr)[1] <- "CHROM"
-
-    SNP <- from_panel_id(fr$ID)
-    A1 <- vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3L)
-
-    tibble::tibble(
-        SNP = SNP,
-        # --freq reports the ALT frequency; ALT is A1 only when the panel's REF
-        # happens to be A2, which nothing guarantees.
-        freq_panel = ifelse(A1 == fr$ALT, fr$ALT_FREQS, 1 - fr$ALT_FREQS)
-    )
-}
-
-# Guard against the LD panel and the summary statistics meaning different
-# variants by the same CHR_POS_A1_A2 name. Nothing downstream notices when they
-# disagree.
-check_panel_freq <- function(
-    snp_ids,
-    eaf,
-    label = "instruments",
-    tol = 0.05,
-    panel = ld_panel,
-    plink2 = plink2_bin,
-    action = c("stop", "warn")
-) {
-    action <- match.arg(action)
-    stopifnot(length(snp_ids) == length(eaf))
-
-    fr <- panel_allele_freq(snp_ids, panel = panel, plink2 = plink2)
-    cmp <- tibble::tibble(SNP = snp_ids, freq_data = as.numeric(eaf)) |>
-        dplyr::inner_join(fr, by = "SNP") |>
-        dplyr::mutate(delta = abs(freq_panel - freq_data))
-
-    if (nrow(cmp) == 0) {
-        warning(sprintf(
-            "[%s] no variant found in the panel; frequency check skipped",
-            label
-        ))
-        return(invisible(cmp))
-    }
-
-    bad <- cmp[!is.na(cmp$delta) & cmp$delta > tol, , drop = FALSE]
-    if (nrow(bad) > 0) {
-        msg <- sprintf(
-            paste0(
-                "[%s] %d variant(s) disagree with the LD panel on A1 ",
-                "frequency by more than %.2f - the panel and the summary ",
-                "statistics are naming different variants:\n%s"
-            ),
-            label,
-            nrow(bad),
-            tol,
-            paste(
-                sprintf(
-                    "  %s  panel %.4f  data %.4f  (d = %.4f)",
-                    bad$SNP,
-                    bad$freq_panel,
-                    bad$freq_data,
-                    bad$delta
-                ),
-                collapse = "\n"
-            )
-        )
-        if (identical(action, "stop")) stop(msg) else warning(msg)
-    } else {
-        message(sprintf(
-            "[%s] panel/data A1 frequency agree for %d variant(s), max |d| = %.4f",
-            label,
-            nrow(cmp),
-            max(cmp$delta, na.rm = TRUE)
-        ))
-    }
-    invisible(cmp)
-}
-
-
-## ---- instrument strength -----------------------------------------------------------
-
-# LD-aware instrument strength from marginal summary statistics.
-joint_F_R2 <- function(beta, se, LD_inv, n = NULL) {
-    stopifnot(length(beta) == length(se), nrow(LD_inv) == length(beta))
-
-    z <- beta / se
-    k <- length(z)
-    chi2 <- as.numeric(t(z) %*% LD_inv %*% z)
-
-    out <- list(
-        z = z,
-        chi2 = chi2,
-        F_joint = chi2 / k,
-        F_mean = mean(z^2),
-        F_min = min(z^2),
-        F_per_snp = z^2
-    )
-
-    if (is.null(n)) {
-        out$R2_joint <- out$R2_rho <- out$R2_adj <- NA_real_
-        out$R2_per_snp <- rep(NA_real_, k)
-        return(out)
-    }
-
-    # Primary: invert the first-stage F relation. Bounded in [0,1] by
-    # construction and the most conservative of the three.
-    out$R2_joint <- out$F_joint / (out$F_joint + (n - k - 1) / k)
-
-    # Marginal correlations combined through the LD matrix; identical in exact
-    # arithmetic, reported so the agreement is visible.
-    rho <- sign(z) * sqrt(z^2 / (z^2 + n - 2))
-    out$R2_rho <- as.numeric(t(rho) %*% LD_inv %*% rho)
-
-    # Adjusted for the K degrees of freedom spent (E[chi2] = K under the null).
-    out$R2_adj <- (chi2 - k) / (chi2 - k + n - k - 1)
-
-    out$R2_per_snp <- z^2 / (z^2 + n - 2)
-    out
-}
-
-# Effective sample size implied by the standard errors (the Genomic SEM
-# identity).
-effective_n <- function(se, eaf) {
-    stats::median(
-        1 / (2 * pmin(eaf, 1 - eaf) * (1 - pmin(eaf, 1 - eaf)) * se^2)
-    )
-}
-
-
 ## ---- Mendelian randomization ----------------------------------------------------
 
 # Correlated IVW plus weighted median for one harmonised outcome table.
 # ld_full must be the signed LD matrix over all instruments; it is subset to
 # whichever ones the outcome actually carries.
-run_mr <- function(dat, ld_full, min_snps = 3L) {
+run_mr <- function(dat, ld_full) {
     label <- dat$outcome[1]
     usable <- dat |>
         dplyr::filter(!is.na(beta_outcome), !is.na(se_outcome), se_outcome > 0)
 
-    if (nrow(usable) < min_snps) {
-        message(sprintf(
-            "[%s] only %d usable instruments, skipping",
-            label,
-            nrow(usable)
-        ))
+    if (nrow(usable) < 3L) {
         return(NULL)
     }
 
@@ -683,137 +605,53 @@ run_mr <- function(dat, ld_full, min_snps = 3L) {
 }
 
 
-## ---- reporting -------------------------------------------------------------------
-
-# Say plainly which instruments a study is missing and why, rather than letting
-# them vanish into an NA.
-report_missing <- function(harmonised, label) {
-    absent <- harmonised |> dplyr::filter(is.na(beta_raw))
-    mismatch <- harmonised |>
-        dplyr::filter(!is.na(beta_raw) & is.na(beta_outcome))
-    palin <- harmonised |> dplyr::filter(!is.na(beta_outcome) & palindromic)
-
-    if (nrow(absent) > 0) {
-        warning(sprintf(
-            "[%s] %d/8 instruments absent from the file: %s",
-            label,
-            nrow(absent),
-            paste(absent$SNP, collapse = ", ")
-        ))
-    }
-    if (nrow(mismatch) > 0) {
-        warning(sprintf(
-            "[%s] %d/8 instruments present but alleles do not match: %s",
-            label,
-            nrow(mismatch),
-            paste(mismatch$SNP, collapse = ", ")
-        ))
-    }
-    if (nrow(palin) > 0) {
-        message(sprintf(
-            "  note: %d palindromic instrument(s) matched on allele identity only: %s",
-            nrow(palin),
-            paste(palin$SNP, collapse = ", ")
-        ))
-    }
-    message(sprintf(
-        "  -> %d/8 instruments usable",
-        sum(!is.na(harmonised$beta_outcome))
-    ))
-}
-
-
 ## ---- genome-wide summary statistics ------------------------------------------------
-## Three readers shared by the mediation steps (07a, 07a2, 07b, 07c).
-
-# -log10(p) recovered from the RAW STRING, so exponents past the double-
-# precision floor survive.
-nlog10_from_p <- function(x) {
-    x <- trimws(as.character(x))
-    out <- suppressWarnings(-log10(as.numeric(x)))
-    m <- regmatches(x, regexec("^([0-9.]+)[eE]([+-]?[0-9]+)$", x))
-    hit <- lengths(m) == 3
-    if (any(hit)) {
-        out[hit] <- -log10(as.numeric(vapply(m[hit], `[`, "", 2))) -
-            as.numeric(vapply(m[hit], `[`, "", 3))
-    }
-    out
-}
-
-# Stream a file, keeping only variants below a p threshold. A file reporting
-# -log10(p) needs the comparison inverted.
-read_significant <- function(cfg, p_threshold = MED_CLUMP_P) {
-    header <- header_of(cfg$file)
-    pi <- col_index(header, cfg$p_col, cfg$file)
-
-    cond <- if (isTRUE(cfg$neglog10_p)) {
-        sprintf(
-            "$%d != \"NA\" && $%d != \"\" && $%d+0 > %.10f",
-            pi,
-            pi,
-            pi,
-            -log10(p_threshold)
-        )
-    } else {
-        sprintf(
-            "$%d != \"NA\" && $%d != \"\" && ($%d+0 < %g || $%d+0 <= 0)",
-            pi,
-            pi,
-            pi,
-            p_threshold,
-            pi
-        )
-    }
-
-    keep_chr <- unique(c(cfg$p_col, cfg$nlog10_col))
-    df <- data.table::fread(
-        cmd = sprintf(
-            "%s | awk -F'\\t' 'NR==1 || (%s)'",
-            reader_cmd(cfg$file),
-            cond
-        ),
-        data.table = FALSE,
-        showProgress = FALSE,
-        colClasses = stats::setNames(
-            rep("character", length(keep_chr)),
-            keep_chr
-        )
-    )
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
-    df
-}
+## Shared by the mediation steps (07a, 07a2, 07b, 07c).
 
 # Put any registry file on the shared schema: ASCII-sorted GRCh38 variant ID with
-# beta, eaf and se oriented onto A1.
+# beta, eaf and se oriented onto A1. `df` comes from read_genome(), so it is
+# already on the standard names; `cfg` is still needed for effect_type,
+# se_source, neglog10_p and for the presence tests - a registry entry without
+# eaf_col yields no eaf column at all.
 to_common <- function(df, cfg) {
-    stopifnot(identical(cfg$build, "GRCh38"))
-
-    chr <- as.integer(sub("^chr", "", as.character(df[[cfg$chr_col]])))
-    pos <- as.integer(df[[cfg$pos_col]])
-    ea <- toupper(as.character(df[[cfg$ea_col]]))
-    oa <- toupper(as.character(df[[cfg$oa_col]]))
-    eff <- as.numeric(df[[cfg$effect_col]])
+    chr <- as.integer(sub("^chr", "", as.character(df[["chrom"]])))
+    pos <- as.integer(df[["pos"]])
+    ea <- toupper(as.character(df[["ea"]]))
+    oa <- toupper(as.character(df[["oa"]]))
+    eff <- as.numeric(df[["beta"]])
     if (identical(cfg$effect_type, "OR")) {
         eff <- log(eff)
     }
 
     se <- switch(
         if (is.null(cfg$se_source)) "column" else cfg$se_source,
-        column = as.numeric(df[[cfg$se_col]]),
+        column = as.numeric(df[["se"]]),
         ci = se_from_ci(
-            as.numeric(df[[cfg$ci_lower_col]]),
-            as.numeric(df[[cfg$ci_upper_col]])
+            as.numeric(df[["ci_lower"]]),
+            as.numeric(df[["ci_upper"]])
         ),
-        p = se_from_p(eff, as.numeric(df[[cfg$p_col]]))
+        p = se_from_p(eff, as.numeric(df[["p"]]))
     )
 
     p <- if (is.null(cfg$p_col)) {
         NA_real_
     } else {
-        raw <- as.numeric(df[[cfg$p_col]])
+        raw <- as.numeric(df[["p"]])
         if (isTRUE(cfg$neglog10_p)) 10^(-raw) else raw
+    }
+
+    # -log10(p) recovered from the RAW STRING, so exponents past the double-
+    # precision floor survive.
+    nlog10_from_p <- function(x) {
+        x <- trimws(as.character(x))
+        out <- -log10(as.numeric(x))
+        m <- regmatches(x, regexec("^([0-9.]+)[eE]([+-]?[0-9]+)$", x))
+        hit <- lengths(m) == 3
+        if (any(hit)) {
+            out[hit] <- -log10(as.numeric(vapply(m[hit], `[`, "", 2))) -
+                as.numeric(vapply(m[hit], `[`, "", 3))
+        }
+        out
     }
 
     # Exact -log10(p), immune to the double-precision floor that makes `p` itself
@@ -822,12 +660,12 @@ to_common <- function(df, cfg) {
     nlog10 <- if (is.null(cfg$p_col)) {
         NA_real_
     } else if (isTRUE(cfg$neglog10_p)) {
-        as.numeric(df[[cfg$p_col]])
+        as.numeric(df[["p"]])
     } else {
-        nlog10_from_p(df[[cfg$p_col]])
+        nlog10_from_p(df[["p"]])
     }
-    if (!is.null(cfg$nlog10_col) && cfg$nlog10_col %in% names(df)) {
-        alt <- suppressWarnings(as.numeric(df[[cfg$nlog10_col]]))
+    if (!is.null(cfg$nlog10_col) && "nlog10" %in% names(df)) {
+        alt <- as.numeric(df[["nlog10"]])
         nlog10 <- ifelse(
             is.finite(alt) & (!is.finite(nlog10) | alt > nlog10),
             alt,
@@ -851,10 +689,10 @@ to_common <- function(df, cfg) {
         eaf = if (is.null(cfg$eaf_col)) {
             NA_real_
         } else {
-            f <- as.numeric(df[[cfg$eaf_col]])
+            f <- as.numeric(df[["eaf"]])
             ifelse(ea == A1, f, 1 - f)
         },
-        n = if (is.null(cfg$n_col)) NA_real_ else as.numeric(df[[cfg$n_col]])
+        n = if (is.null(cfg$n_col)) NA_real_ else as.numeric(df[["n"]])
     ) |>
         dplyr::filter(
             !is.na(beta),
@@ -866,241 +704,61 @@ to_common <- function(df, cfg) {
         dplyr::distinct(SNPid, .keep_all = TRUE)
 }
 
-# Pull a fixed set of variants out of a genome-wide file.
-lookup_at <- function(cfg, snpids, chr, pos, label = cfg$label) {
-    header <- header_of(cfg$file)
-    ci <- col_index(header, cfg$chr_col, cfg$file)
-    pi <- col_index(header, cfg$pos_col, cfg$file)
-
-    pos_file <- scratch_file()
-    writeLines(unique(paste(chr, pos, sep = "\t")), pos_file)
-    on.exit(unlink(pos_file), add = TRUE)
-
-    df <- data.table::fread(
-        cmd = sprintf(
-            "%s | awk -F'\\t' 'NR==FNR{keep[$1\"\\t\"$2];next} {c=$%d; sub(/^chr/,\"\",c)} FNR==1 || ((c\"\\t\"$%d) in keep)' %s -",
-            reader_cmd(cfg$file),
-            ci,
-            pi,
-            shQuote(pos_file)
-        ),
-        data.table = FALSE,
-        showProgress = FALSE
+# Pull a fixed set of variants out of a genome-wide file. `want` names them:
+# one row per wanted variant, with SNPid, chrom and pos. The join is on
+# position alone - a file spells its alleles its own way, and to_common()
+# settles the orientation afterwards - so `want` is made distinct first,
+# otherwise two instruments at one multi-allelic position would duplicate every
+# row the file has there. SNPid then keeps only the alleles actually wanted.
+lookup_at <- function(cfg, want) {
+    keep <- dplyr::distinct(
+        want,
+        chrom = as.character(chrom),
+        pos = as.integer(pos)
     )
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
+
+    genome <- read_genome(cfg)
+    df <- dplyr::inner_join(genome, keep, by = c("chrom", "pos"))
+    # The join keeps a handful of rows out of tens of millions; release the
+    # whole-genome table here rather than at the end of the caller's iteration.
+    rm(genome)
+    gc(verbose = FALSE, full = TRUE)
     if (nrow(df) == 0) {
-        stop(sprintf("[%s] no rows matched", label))
+        stop(sprintf("[%s] no rows matched", cfg$label))
     }
 
-    to_common(df, cfg) |> dplyr::filter(SNPid %in% snpids)
-}
-
-# plink2 --clump ranks on its P column and cannot break ties at P = 0, where
-# the 24 strongest ApoB variants all land.
-clump_key <- function(nlog10, p_threshold = MED_CLUMP_P) {
-    bad <- !is.finite(nlog10)
-    if (any(bad)) {
-        stop(sprintf(
-            "clump_key(): %d variant(s) have no finite -log10(p). A file writing the literal \"0\" or \"0.0\" loses the magnitude entirely - declare nlog10_col for it in config.R, or the clump order at that locus would be arbitrary.",
-            sum(bad)
-        ))
-    }
-    r <- rank(-nlog10, ties.method = "first")
-    r / (length(r) + 1) * p_threshold
-}
-
-# One variant per `bin_bp` window, genome-wide.
-thin_genome <- function(cfg, bin_bp = 100000L) {
-    header <- header_of(cfg$file)
-    ci <- col_index(header, cfg$chr_col, cfg$file)
-    pi <- col_index(header, cfg$pos_col, cfg$file)
-
-    df <- data.table::fread(
-        cmd = sprintf(
-            "%s | awk -F'\\t' 'NR==1{print; next} {c=$%d; sub(/^chr/,\"\",c); k=c\"_\"int($%d/%d); if(!(k in seen)){seen[k]=1; print}}'",
-            reader_cmd(cfg$file),
-            ci,
-            pi,
-            bin_bp
-        ),
-        data.table = FALSE,
-        showProgress = FALSE
-    )
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
-    to_common(df, cfg)
+    to_common(df, cfg) |> dplyr::filter(SNPid %in% want$SNPid)
 }
 
 ## -----------------------------------------------------------------------------
 ## PART 2 - general-purpose genetics helpers
 ## -----------------------------------------------------------------------------
 
-# uses plink to quickly calculate LD from a reference panel.
-# its important that the two alleles are ASCII sorted (i.e. --set-all-variant-ids @_#_\$1_\$2)
-
-local_ld_calculation <- function(
-    index_variant,
-    all_variants,
-    reference,
-    ...
-) {
-    message(paste(
-        "Calculating LD using the following reference panel:",
-        basename(reference)
-    ))
+get_high_ld_snps <- function(leads, reference, r2, kb) {
     out_file <- scratch_file()
-    plink_exe <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
-
-    # extract all variants in that locus -> speeds up computation
-    tmp_variants_file <- scratch_file("variants")
-    data.table::fwrite(
-        data.frame(all_variants),
-        file = tmp_variants_file,
-        row.names = FALSE,
-        col.names = F
-    )
-
-    # get the chromosome, of the index snp Accepts both naming conventions in
-    # use here: the project's 1_POS_A1_A2 and the INTERVAL panel's
-    # chr1:POS:A1:A2.
-    chr_ <- sub(
-        "^chr",
-        "",
-        str_split_fixed(gsub(":", "_", index_variant), "_", 4)[, 1]
-    )
-
-    # run plink to only extract the ones that we need
-    tmp_plink <- scratch_file("tmp_plink")
-    # implement dynamic switch between plink1 and plink2 because reasonss
-    # check if plink2 files exist
-    if (
-        length(list.files(
-            dirname(reference),
-            pattern = paste0(basename(reference), ".pgen")
-        )) ==
-            1
-    ) {
-        cmd <- stringr::str_interp(
-            "${plink_exe} --chr ${chr_} --extract ${tmp_variants_file} --pfile ${reference} --make-pgen --out ${tmp_plink}"
-        )
-    } else {
-        cmd <- stringr::str_interp(
-            "${plink_exe} --chr ${chr_} --extract ${tmp_variants_file} --bfile ${reference} --make-pgen --out ${tmp_plink}"
-        )
-    }
-    system(cmd, ignore.stdout = T)
-
-    # run plink
-    system(
-        paste(
-            plink_exe,
-            "--pfile",
-            tmp_plink,
-            "--r2-unphased --ld-snp",
-            index_variant,
-            "--ld-window-r2 0 --ld-window-kb 99999 --ld-window 99999 --out",
-            out_file
-        ),
-        ignore.stdout = T
-    )
-    if (file.exists(paste0(out_file, ".vcor"))) {
-        out <- data.table::fread(input = paste0(out_file, ".vcor")) %>%
-            as.data.frame()
-        system(str_interp("rm ${tmp_plink}*"))
-        return(out)
-    } else {
-        message(
-            "Initial calculation failed, because SNP was not found in the dataset"
-        )
-        system(str_interp("rm ${tmp_plink}*"))
-        stop(
-            "Make sure the index SNP exists in the reference panel. Otherwise select a different one using index_snp=''"
-        )
-    }
-}
-
-
-get_high_ld_snps <- function(
-    index_variant,
-    reference,
-    ld_threshold = 0.8,
-    window_kb = 100,
-    verbose = TRUE,
-    chr = NULL,
-    start = NULL,
-    stop = NULL,
-    ...
-) {
-    message(paste(
-        "Calculating LD using the following reference panel:",
-        basename(reference)
-    ))
-    out_file <- scratch_file()
-    plink_exe <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
-
-    # If chr, start, and stop are specified, first filter the reference to the region
-    # This massively reduces allele freq calculation time
-    filtered_reference <- NULL
-    if (!is.null(chr) && !is.null(start) && !is.null(stop)) {
-        message(paste(
-            "Filtering reference to region:",
-            chr,
-            ":",
-            start,
-            "-",
-            stop
-        ))
-        filtered_reference <- scratch_file()
-        filter_cmd <- paste(
-            plink_exe,
-            "--pfile",
-            reference,
-            "--chr",
-            chr,
-            "--from-bp",
-            start,
-            "--to-bp",
-            stop,
-            "--make-pgen",
-            "--threads",
-            4,
-            "--out",
-            filtered_reference
-        )
-        system(filter_cmd, ignore.stdout = !verbose)
-        reference <- filtered_reference
-    }
 
     # Create a temporary file to write the SNP(s) to
     snps_file <- scratch_file(fileext = ".snps")
-    writeLines(index_variant, snps_file)
+    writeLines(leads, snps_file)
 
     cmd <- paste(
-        plink_exe,
+        plink2_bin,
         "--pfile",
         reference,
         "--r2-unphased",
         "--ld-snp-list",
         snps_file,
         "--ld-window-r2",
-        ld_threshold,
+        r2,
         "--ld-window-kb",
-        window_kb,
+        kb,
         "--threads",
         4, # Use multiple threads for speed
         "--out",
         out_file
     )
 
-    system(cmd, ignore.stdout = !verbose)
-
-    # Clean up filtered reference files if they were created
-    if (!is.null(filtered_reference)) {
-        unlink(paste0(filtered_reference, c(".pgen", ".pvar", ".psam", ".log")))
-    }
+    system(cmd, ignore.stdout = TRUE)
 
     return(data.table::fread(paste0(out_file, ".vcor"), data.table = FALSE))
 }
@@ -1108,16 +766,13 @@ get_high_ld_snps <- function(
 
 ## This function "aligns" alleles so that they are ASCII sorted.
 ## If it detects a SNPid which is not ASCII sorted, it will correct it and change the sign of the beta
-## Optionally, if you provide an LD reference, it will calculate the allele frequency.
 
 # A1 WILL BE THE EFFECT ALLELE WHICH WILL CORRESPOND TO ALLELE WHICH IS ALPHABETICALLY FIRST
 align_ASCII_sort <- function(
     data,
     effect_allele,
     other_allele,
-    ld_reference = NULL,
-    beta = "beta",
-    status = FALSE
+    beta = "beta"
 ) {
     A1 <- str_split_fixed(data[["SNPid"]], "_", 4)[, 3]
     data[[beta]] <- ifelse(
@@ -1126,9 +781,7 @@ align_ASCII_sort <- function(
         data[[beta]] * -1
     )
 
-    if (status) {
-        data$flipped <- ifelse(A1 == data[[effect_allele]], FALSE, TRUE)
-    }
+    data$flipped <- ifelse(A1 == data[[effect_allele]], FALSE, TRUE)
 
     # also switch the alleles
     new_effect_allele <- ifelse(
@@ -1143,33 +796,7 @@ align_ASCII_sort <- function(
     )
     data[[effect_allele]] <- new_effect_allele
     data[[other_allele]] <- new_other_allele
-    stopifnot(all(data[[effect_allele]] == A1))
 
-    # calculate MAF
-    if (!is.null(ld_reference)) {
-        tmp_maf <- calculate_maf(data[["SNPid"]], reference = ld_reference) %>%
-            arrange(ID) %>%
-            mutate(ALT_FREQS = as.numeric(ALT_FREQS))
-        # now make sure that the  allele frequency correspond to the A1 frequency.
-        # if A1 is not "ALT", then we have to do 1-ALT_freqs
-        A1 <- str_split_fixed(tmp_maf$ID, "_", 4)[, 3]
-        tmp_maf$ALT_FREQS <- ifelse(
-            A1 != tmp_maf$ALT,
-            1 - tmp_maf$ALT_FREQS,
-            tmp_maf$ALT_FREQS
-        )
-
-        # filter out snps that do not occur in our reference dataset
-        data <- data %>%
-            dplyr::filter(SNPid %in% tmp_maf$ID)
-
-        data <- data %>%
-            left_join(
-                .,
-                tmp_maf %>% dplyr::select(A1_freq = ALT_FREQS, ID),
-                by = c("SNPid" = "ID")
-            )
-    }
     return(data)
 }
 
@@ -1179,42 +806,84 @@ add_LD <- function(
     locus,
     SNPid_col = "SNPid",
     index_snp = NA,
-    available_snps = NULL,
     ...
 ) {
-    dataset <- locus[["data"]]
+    # uses plink to quickly calculate LD from a reference panel.
+    # its important that the two alleles are ASCII sorted (i.e. --set-all-variant-ids @_#_\$1_\$2)
+    local_ld_calculation <- function(
+        index_variant,
+        all_variants,
+        reference,
+        ...
+    ) {
+        out_file <- scratch_file()
 
-    # this checks if the SNP exists in the reference bim. if not, take SNP with the next lowest P Value
-    if (!is.null(available_snps) & is.na(index_snp)) {
-        # if we have manually specified an index snp dont do this step
-        for (z in 1:nrow(dataset)) {
-            print(z)
-            index_snp <- slice_min(
-                dataset,
-                order_by = !!sym(locus$p),
-                n = z,
-                with_ties = FALSE
-            ) %>%
-                pull(locus$labs)
-            index_snp <- index_snp[z]
-            if (index_snp %in% available_snps) {
-                print(index_snp)
-                break
-            }
+        # extract all variants in that locus -> speeds up computation
+        tmp_variants_file <- scratch_file()
+        data.table::fwrite(
+            data.frame(all_variants),
+            file = tmp_variants_file,
+            row.names = FALSE,
+            col.names = FALSE
+        )
+
+        # get the chromosome, of the index snp Accepts both naming conventions in
+        # use here: the project's 1_POS_A1_A2 and the INTERVAL panel's
+        # chr1:POS:A1:A2.
+        chr_ <- sub(
+            "^chr",
+            "",
+            str_split_fixed(gsub(":", "_", index_variant), "_", 4)[, 1]
+        )
+
+        # run plink to only extract the ones that we need
+        tmp_plink <- scratch_file()
+        # implement dynamic switch between plink1 and plink2 because reasonss
+        # check if plink2 files exist
+        if (
+            length(list.files(
+                dirname(reference),
+                pattern = paste0(basename(reference), ".pgen")
+            )) ==
+                1
+        ) {
+            cmd <- stringr::str_interp(
+                "${plink2_bin} --chr ${chr_} --extract ${tmp_variants_file} --pfile ${reference} --make-pgen --out ${tmp_plink}"
+            )
+        } else {
+            cmd <- stringr::str_interp(
+                "${plink2_bin} --chr ${chr_} --extract ${tmp_variants_file} --bfile ${reference} --make-pgen --out ${tmp_plink}"
+            )
+        }
+        system(cmd, ignore.stdout = TRUE)
+
+        # run plink
+        system(
+            paste(
+                plink2_bin,
+                "--pfile",
+                tmp_plink,
+                "--r2-unphased --ld-snp",
+                index_variant,
+                "--ld-window-r2 0 --ld-window-kb 99999 --ld-window 99999 --out",
+                out_file
+            ),
+            ignore.stdout = TRUE
+        )
+        if (file.exists(paste0(out_file, ".vcor"))) {
+            out <- data.table::fread(input = paste0(out_file, ".vcor")) %>%
+                as.data.frame()
+            system(str_interp("rm ${tmp_plink}*"))
+            return(out)
+        } else {
+            system(str_interp("rm ${tmp_plink}*"))
+            stop(
+                "Make sure the index SNP exists in the reference panel. Otherwise select a different one using index_snp=''"
+            )
         }
     }
 
-    index_snp <- ifelse(
-        is.na(index_snp),
-        slice_min(
-            dataset,
-            order_by = !!sym(locus$p),
-            n = 1,
-            with_ties = FALSE
-        ) %>%
-            pull(locus$labs),
-        index_snp
-    )
+    dataset <- locus[["data"]]
 
     # calculate LD
     output <- local_ld_calculation(
@@ -1262,57 +931,12 @@ create_SNPid_vectorized <- function(
 }
 
 
-calculate_maf <- function(
-    variants,
-    reference,
-    plink2_bin = "/rds/user/nh608/hpc-work/software/plink2/plink2"
-) {
-    # Make textfile
-    fn <- scratch_file()
-    write.table(
-        data.frame(variants),
-        file = fn,
-        row.names = F,
-        col.names = F,
-        quote = F
-    )
-
-    fun1 <- paste0(
-        plink2_bin,
-        " --pfile ",
-        reference,
-        " --extract ",
-        fn,
-        " --freq ",
-        " --out ",
-        fn
-    )
-    system(fun1, ignore.stdout = T)
-    res <- data.table::fread(paste0(fn, ".afreq"), header = T)
-}
-
-
-# LIFTOVER_CHAIN_DIR is overridable from config.R.
-if (!exists("LIFTOVER_CHAIN_DIR")) {
-    LIFTOVER_CHAIN_DIR <- "/rds/user/nh608/hpc-work/software/UCSC_liftOver"
-}
-
-ld_clump_local <- function(
-    dat,
-    id_col = "SNP",
-    p_col = "p",
-    clump_kb,
-    clump_r2,
-    clump_p,
-    bfile,
-    plink_bin,
-    verbose = TRUE
-) {
+ld_clump_local <- function(variants, bfile, r2, kb) {
     # Make textfile
     shell <- ifelse(Sys.info()["sysname"] == "Windows", "cmd", "sh")
     fn <- scratch_file()
     write.table(
-        data.frame(SNP = dat[[id_col]], P = dat[[p_col]]),
+        data.frame(SNP = variants[["SNP"]], P = variants[["p"]]),
         file = fn,
         row.names = FALSE,
         col.names = TRUE,
@@ -1327,7 +951,7 @@ ld_clump_local <- function(
     }
 
     fun2 <- paste0(
-        shQuote(plink_bin, type = shell),
+        shQuote(plink2_bin, type = shell),
         " ",
         panel_flag,
         " ",
@@ -1335,104 +959,28 @@ ld_clump_local <- function(
         " --clump ",
         shQuote(fn, type = shell),
         " --clump-p1 ",
-        clump_p,
+        5e-8,
         " --clump-r2 ",
-        clump_r2,
+        r2,
         " --clump-kb ",
-        clump_kb,
+        kb,
         " --out ",
         shQuote(fn, type = shell)
     )
-    if (!verbose) {
-        null_device <- ifelse(
-            Sys.info()["sysname"] == "Windows",
-            "NUL",
-            "/dev/null"
-        )
-        fun2 <- paste(fun2, ">", null_device, "2>&1")
-    }
+    null_device <- ifelse(
+        Sys.info()["sysname"] == "Windows",
+        "NUL",
+        "/dev/null"
+    )
+    fun2 <- paste(fun2, ">", null_device, "2>&1")
 
     system(fun2)
 
     # Check if PLINK output file exists
     clumps_file <- paste(fn, ".clumps", sep = "")
-    if (!file.exists(clumps_file)) {
-        # Surface what PLINK actually said, rather than guessing at the cause.
-        log_file <- paste0(fn, ".log")
-        detail <- if (file.exists(log_file)) {
-            paste(
-                utils::tail(readLines(log_file, warn = FALSE), 15),
-                collapse = "\n"
-            )
-        } else {
-            "(no PLINK log written)"
-        }
-        stop(
-            "PLINK clumping failed - no output at: ",
-            clumps_file,
-            "\ncommand: ",
-            fun2,
-            "\nPLINK log tail:\n",
-            detail
-        )
-    }
 
     res <- data.table::fread(clumps_file, header = TRUE)
     return(res)
-}
-
-
-get_gene_coordinates_hg38 <- function(gene_symbol, ensDb = NULL) {
-    if (is.null(ensDb)) {
-        ah <- AnnotationHub()
-        hg38_annotations <- ah[["AH116291"]]
-    } else {
-        hg38_annotations <- ensDb
-    }
-
-    gene_coords_hg38 <- genes(hg38_annotations) %>%
-        as.data.frame() %>%
-        filter(symbol == gene_symbol) %>%
-        filter(grepl("ENSG", gene_id))
-
-    if (nrow(gene_coords_hg38) == 0) {
-        warning(paste("No coordinates found for gene symbol:", gene_symbol))
-        return(NULL)
-    }
-
-    # Filter for integer chromosomes only (exclude unusual chromosome names)
-    chr_levels <- as.character(gene_coords_hg38$seqnames)
-    integer_chr_indices <- which(grepl("^[0-9]+$", chr_levels))
-
-    if (length(integer_chr_indices) == 0) {
-        stop(paste(
-            "No integer chromosome coordinates found for gene symbol:",
-            gene_symbol,
-            ". Found chromosomes:",
-            paste(unique(chr_levels), collapse = ", ")
-        ))
-    }
-
-    # Filter data to only include integer chromosomes
-    gene_coords_filtered <- gene_coords_hg38[integer_chr_indices, ]
-
-    # Check if multiple chromosomes remain after filtering
-    unique_chr <- unique(gene_coords_filtered$seqnames)
-    if (length(unique_chr) > 1) {
-        stop(paste(
-            "Multiple integer chromosomes found for gene symbol:",
-            gene_symbol,
-            ". Chromosomes:",
-            paste(unique_chr, collapse = ", "),
-            ". Please check gene annotation."
-        ))
-    }
-
-    chr <- as.integer(as.character(unique_chr[1]))
-    start_hg38 <- gene_coords_filtered$start
-    stop_hg38 <- gene_coords_filtered$end
-
-    list(chromosome = chr, start = start_hg38, stop = stop_hg38)
 }
 
 ## =============================================================================

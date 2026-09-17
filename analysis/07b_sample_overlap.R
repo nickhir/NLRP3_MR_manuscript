@@ -20,24 +20,38 @@ GRID_TRAIT <- "SBP"  # whose variant set defines the grid
 
 
 ## ---- 1. the grid ------------------------------------------------------------------
-stopifnot(GRID_TRAIT %in% names(MEDIATORS))
-message(sprintf("Building a 1-per-%d kb grid from %s ...",
-                GRID_BP / 1000L, MEDIATORS[[GRID_TRAIT]]$label))
+# One variant per `bin_bp` window, genome-wide.
+thin_genome <- function(cfg, bin_bp = 100000L) {
+    read_genome(cfg) %>%
+        mutate(row = row_number(), bin = floor(pos / bin_bp)) %>%
+        group_by(chrom, bin) %>%
+        # First row of each bin in file order wins, exactly as the streaming
+        # filter this replaced did with its `if (!(k in seen))`.
+        slice(1) %>%
+        ungroup() %>%
+        # slice() picks the right row but hands the groups back sorted by
+        # chrom then bin, so the grid would leave here in a different order
+        # from the one every earlier run used. Order is not free: it sets the
+        # sequence cor.test() sums in further down.
+        arrange(row) %>%
+        to_common(cfg)
+}
 
 grid <- thin_genome(MEDIATORS[[GRID_TRAIT]], bin_bp = GRID_BP)
-message(sprintf("  %s variants\n", format(nrow(grid), big.mark = ",")))
-stopifnot(nrow(grid) > 5000)
+message(sprintf("1-per-%d kb grid from %s: %s variants", GRID_BP / 1000L,
+                MEDIATORS[[GRID_TRAIT]]$label, format(nrow(grid), big.mark = ",")))
 
 
 ## ---- 2. the same variants in every mediator ----------------------------------------
+# Built once: the same variant list is handed to every mediator.
+grid_want <- grid %>% transmute(SNPid, chrom = chr, pos)
+
 z_at_grid <- lapply(names(MEDIATORS), function(k) {
     cfg <- MEDIATORS[[k]]
-    message(sprintf("  %s ...", cfg$label))
+    d <- if (identical(k, GRID_TRAIT)) grid else lookup_at(cfg, grid_want)
 
-    d <- if (identical(k, GRID_TRAIT)) grid else
-        lookup_at(cfg, grid$SNPid, grid$chr, grid$pos, cfg$label)
-
-    message(sprintf("    %s / %s present", format(nrow(d), big.mark = ","),
+    message(sprintf("%s at the grid: %s / %s present", cfg$label,
+                    format(nrow(d), big.mark = ","),
                     format(nrow(grid), big.mark = ",")))
     # beta and se are already oriented onto A1 by to_common(), so z is directly
     # comparable across traits without further harmonisation.
@@ -47,8 +61,6 @@ z_at_grid <- lapply(names(MEDIATORS), function(k) {
 wide <- z_at_grid %>%
     pivot_wider(names_from = mediator, values_from = c(z, p)) %>%
     drop_na()
-message(sprintf("\n%s variants present in all %d mediators\n",
-                format(nrow(wide), big.mark = ","), length(MEDIATORS)))
 
 
 ## ---- 3. pairwise correlation at variants null for both ------------------------------
@@ -79,19 +91,11 @@ for (i in seq_along(keys)) for (j in seq_along(keys)) {
 
 pairs_tbl <- bind_rows(pairs_tbl)
 
-message("Sampling correlation at variants null for both traits (p > ", NULL_P, "):\n")
 print(as.data.frame(pairs_tbl %>%
     mutate(across(c(rho, ci_lower, ci_upper, sd_z_1, sd_z_2), ~ round(.x, 3)))),
     row.names = FALSE)
 
-message("\nrho matrix:")
 print(round(rho, 3))
-
-if (any(pairs_tbl$sd_z_1 > 1.3 | pairs_tbl$sd_z_2 > 1.3)) {
-    message("\nNOTE: sd of the null z-scores exceeds 1.3 for at least one trait.")
-    message("      The 'null' set still carries association signal; rho will be")
-    message("      biased away from the pure sample-overlap term.")
-}
 
 
 ## ---- output -------------------------------------------------------------------------

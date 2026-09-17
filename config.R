@@ -100,7 +100,10 @@ READOUTS <- list(
         se_col = "slope_se",
         p_col = "pval_nominal",
         eaf_col = "af",
-        extra_filter = sprintf("$1==\"%s\"", NLRP3_ENSG)
+        # The release holds every gene tested in the window, so the rows are
+        # restricted to NLRP3 on the way in.
+        gene_col = "phenotype_id",
+        gene = NLRP3_ENSG
     ),
     CRP = list(
         label = "CRP concentration",
@@ -113,7 +116,8 @@ READOUTS <- list(
         oa_col = "hm_other_allele",
         effect_col = "hm_beta",
         se_col = "standard_error",
-        p_col = "p_value"
+        p_col = "p_value",
+        rsid_col = "hm_rsid"
     ),
     GlycA = list(
         label = "GlycA concentration",
@@ -128,7 +132,8 @@ READOUTS <- list(
         se_col = "standard_error",
         p_col = "neg_log_10_p_value",
         neglog10_p = TRUE,
-        eaf_col = "effect_allele_frequency"
+        eaf_col = "effect_allele_frequency",
+        rsid_col = "rsid"
     ),
     Neutrophil_count = list(
         label = "Neutrophil count",
@@ -145,7 +150,8 @@ READOUTS <- list(
         # the reference for the panel-vs-GWAS frequency guard in step 00:
         # the largest readout that ships an effect-allele frequency.
         # CRP is deliberately left without one - it is never used for that.
-        eaf_col = "hm_effect_allele_frequency"
+        eaf_col = "hm_effect_allele_frequency",
+        rsid_col = "hm_rsid"
     )
 )
 

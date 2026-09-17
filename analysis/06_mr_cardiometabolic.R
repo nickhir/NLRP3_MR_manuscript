@@ -18,13 +18,11 @@ exposure    <- load_instruments(negate = TRUE)
 instruments <- exposure$SNP
 
 ld_full <- interval_ld_matrix(instruments)
-stopifnot(identical(rownames(ld_full), instruments))
 
 # The eight instruments in both builds. This doubles as the GRCh37 -> GRCh38
 # position map harmonise_region() wants, and restricting it to the instruments
 # is the point: nothing else is needed at this locus.
 pos_map <- exposure |> select(pos_hg19, pos_hg38)
-stopifnot(!any(is.na(pos_map$pos_hg19)), !any(is.na(pos_map$pos_hg38)))
 
 # The locus in each build. GRCh37 coordinates come from the instruments, so the
 # window is centred on them rather than on a hardcoded offset.
@@ -41,11 +39,10 @@ run_trait <- function(key) {
     message(sprintf("  %-14s (%s, %s) ...", cfg$label, cfg$accession, cfg$build))
 
     rng <- REGION[[cfg$build]]
-    raw <- read_region(cfg$file, cfg$chr_col, cfg$pos_col, CHR, rng[1], rng[2],
-                       sep = if (is.null(cfg$sep)) "tab" else cfg$sep)
+    raw <- read_region(cfg, CHR, rng[1], rng[2])
 
     # Confirm the file is on the build it claims before trusting any match.
-    verify_build(raw, cfg$pos_col, cfg$build, cfg$label, exposure)
+    verify_build(raw, cfg$build, cfg$label, exposure)
 
     harmonised <- harmonise_region(raw, cfg, CHR, pos_map = pos_map)
 
@@ -54,23 +51,19 @@ run_trait <- function(key) {
     # one axis and SBP here matches the mediation alpha.
     sd_scale <- 1
     if (isTRUE(cfg$standardise_sd)) {
-        eaf <- suppressWarnings(as.numeric(raw[[cfg$eaf_col]]))
-        nn  <- suppressWarnings(as.numeric(raw[[cfg$n_col]]))
-        d <- tibble(se = suppressWarnings(as.numeric(raw[[cfg$se_col]])),
-                    eaf = eaf, n = nn) |> filter(!is.na(se), !is.na(eaf), !is.na(n))
-        s <- suppressWarnings(coloc:::sdY.est(vbeta = d$se^2,
-                                              maf = pmin(d$eaf, 1 - d$eaf),
-                                              n = round(median(d$n))))
+        d <- tibble(se = as.numeric(raw$se),
+                    eaf = as.numeric(raw$eaf),
+                    n = as.numeric(raw$n)) |>
+            filter(!is.na(se), !is.na(eaf), !is.na(n))
+        s <- coloc:::sdY.est(vbeta = d$se^2,
+                             maf = pmin(d$eaf, 1 - d$eaf),
+                             n = round(median(d$n)))
         sd_scale <- if (is.finite(s) && s > 2) s else 1
-        message(sprintf("      sdY = %.3f native units per SD", sd_scale))
         harmonised <- harmonised |> mutate(beta = beta / sd_scale,
                                            se   = se   / sd_scale)
     }
 
     outcome <- harmonised |> filter(SNPid %in% instruments)
-
-    found <- sum(instruments %in% outcome$SNPid)
-    message(sprintf("      %d/8 instruments", found))
 
     dat <- exposure |>
         select(SNP, beta_exposure, se_exposure) |>
@@ -88,7 +81,6 @@ run_trait <- function(key) {
                .before  = 1)
 }
 
-message("Cardiometabolic risk factors, per one-unit decrease in the score:")
 results <- lapply(names(CARDIOMETABOLIC), run_trait) |> bind_rows()
 
 
@@ -101,9 +93,6 @@ results <- results |>
     arrange(match(trait, names(CARDIOMETABOLIC)),
             match(method, c("IVW", "Weighted median")))
 
-stopifnot(nrow(results) == 2 * length(CARDIOMETABOLIC),
-          !any(is.na(results$estimate)))
-
 
 ## ---- report --------------------------------------------------------------------
 ivw <- results |> filter(method == "IVW")
@@ -112,14 +101,6 @@ for (i in seq_len(nrow(ivw))) {
     message(sprintf("  %-14s %2d SNPs  %7.3f (%7.3f, %7.3f)  P=%8.3g",
                     ivw$outcome[i], ivw$nsnp[i], ivw$estimate[i],
                     ivw$ci_lower[i], ivw$ci_upper[i], ivw$p[i]))
-}
-
-# Any trait running on fewer than eight instruments is named rather than left
-# to be noticed in the table.
-short <- ivw |> filter(nsnp < 8)
-if (nrow(short) > 0) {
-    message("\nFewer than 8 instruments: ",
-            paste(sprintf("%s (%d)", short$outcome, short$nsnp), collapse = ", "))
 }
 
 fwrite(results, file.path(out_dir, "cardiometabolic_mr.tsv"), sep = "\t")

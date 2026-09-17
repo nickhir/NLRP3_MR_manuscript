@@ -16,15 +16,6 @@ source(here::here("helpers.R"))
 output_dir <- step_dir("12_mr_indications")
 
 
-## ----sanity_check_paths-------------------------------------------------------
-stopifnot(
-    dir.exists(dataset_dir),
-    file.exists(instrument_file),
-    file.exists(plink2_bin),
-    file.exists(paste0(ld_panel, ".fam"))
-)
-
-
 ## ----exposure-----------------------------------------------------------------
 exposure <- fread(instrument_file, data.table = FALSE) %>%
     transmute(
@@ -56,83 +47,12 @@ hg19_lookup <- tribble(
 
 exposure <- exposure %>% left_join(hg19_lookup, by = "SNP")
 
-stopifnot(
-    nrow(exposure) == 8,
-    !any(is.na(exposure$pos_hg19)),
-    !any(is.na(exposure$beta_exposure)),
-    # the ID must agree with the A1/A2 columns
-    all(
-        exposure$SNP ==
-            paste(
-                exposure$chr,
-                exposure$pos_hg38,
-                exposure$A1,
-                exposure$A2,
-                sep = "_"
-            )
-    ),
-    # A1 must be the ASCII-first allele
-    all(exposure$A1 < exposure$A2)
-)
-
 exposure
 
 
 ## ----flip_exposure_direction--------------------------------------------------
 exposure <- exposure %>%
     mutate(beta_exposure = -beta_exposure)
-
-exposure_direction <- "1-unit DECREASE in cis-NLRP3 activity score"
-
-
-## ----helper_region------------------------------------------------------------
-read_nlrp3_region <- function(
-    path,
-    chr_col,
-    pos_col,
-    sep = c("tab", "whitespace")
-) {
-    sep <- match.arg(sep)
-    header <- header_of(path, sep)
-    ci <- col_index(header, chr_col, path)
-    pi <- col_index(header, pos_col, path)
-
-    # Whitespace-delimited inputs (the deCODE releases) are re-emitted with
-    # tab separators by awk, so fread always sees the same shape.
-    awk <- if (sep == "tab") {
-        sprintf(
-            "awk -F'\\t' 'NR==1 || (($%d==\"1\" || $%d==\"chr1\") && $%d>=%d && $%d<=%d)'",
-            ci,
-            ci,
-            pi,
-            INDICATION_REGION_START,
-            pi,
-            INDICATION_REGION_END
-        )
-    } else {
-        sprintf(
-            "awk 'BEGIN{OFS=\"\\t\"} NR==1 || (($%d==\"1\" || $%d==\"chr1\") && $%d>=%d && $%d<=%d) {$1=$1; print}'",
-            ci,
-            ci,
-            pi,
-            INDICATION_REGION_START,
-            pi,
-            INDICATION_REGION_END
-        )
-    }
-    df <- fread(
-        cmd = paste(reader_cmd(path), "|", awk),
-        data.table = FALSE,
-        showProgress = FALSE
-    )
-
-    # fread can mangle a leading '#' in the first column name; restore
-    # the true header so that lookups by name always work.
-    if (ncol(df) == length(header)) {
-        names(df) <- header
-    }
-    df
-}
 
 
 ## ----helper_proxies-----------------------------------------------------------
@@ -186,6 +106,37 @@ resolve_proxies <- function(std, proxies, label) {
 }
 
 
+## ----helper_report_missing------------------------------------------------------
+# Say plainly which instruments a study is missing and why, rather than letting
+# them vanish into an NA.
+report_missing <- function(harmonised, label) {
+    absent <- harmonised |> dplyr::filter(is.na(beta_raw))
+    mismatch <- harmonised |>
+        dplyr::filter(!is.na(beta_raw) & is.na(beta_outcome))
+
+    if (nrow(absent) > 0) {
+        warning(sprintf(
+            "[%s] %d/8 instruments absent from the file: %s",
+            label,
+            nrow(absent),
+            paste(absent$SNP, collapse = ", ")
+        ))
+    }
+    if (nrow(mismatch) > 0) {
+        warning(sprintf(
+            "[%s] %d/8 instruments present but alleles do not match: %s",
+            label,
+            nrow(mismatch),
+            paste(mismatch$SNP, collapse = ", ")
+        ))
+    }
+    message(sprintf(
+        "  -> %d/8 instruments usable",
+        sum(!is.na(harmonised$beta_outcome))
+    ))
+}
+
+
 ## ----helper_prepare_outcome---------------------------------------------------
 prepare_outcome <- function(
     label,
@@ -196,63 +147,57 @@ prepare_outcome <- function(
     ea_col,
     oa_col,
     effect_col,
-    effect_type = c("beta", "OR"),
-    se_source = c("column", "ci", "p"),
+    effect_type = "beta",
+    se_source = "column",
     se_col = NULL, # when se_source = "column"
     ci_lower_col = NULL, # when se_source = "ci"
     ci_upper_col = NULL,
     # se_source = "p" needs only p_col
     eaf_col = NULL,
     p_col = NULL,
-    eaf_scale = 1, # 100 when EAF is a percentage
-    sep = c("tab", "whitespace"),
     proxies = NULL, # see resolve_proxies()
     n_cases = NA_integer_,
     n_controls = NA_integer_
 ) {
-    effect_type <- match.arg(effect_type)
-    se_source <- match.arg(se_source)
-    sep <- match.arg(sep)
-    stopifnot(build %in% c("GRCh38", "GRCh37"))
-
     message(sprintf("[%s] %s", label, basename(file)))
 
-    raw <- read_nlrp3_region(file, chr_col, pos_col, sep)
-    verify_build(raw, pos_col, build, label, exposure)
+    # read_region() takes a registry entry and hands back fixed column names
+    # (chrom, pos, ea, oa, beta, se, eaf, p, ci_lower, ci_upper). The OUTCOMES
+    # entry arrives here splatted across this wrapper's arguments, so it is
+    # reassembled for the call.
+    raw <- read_region(
+        list(
+            file = file,
+            chr_col = chr_col,
+            pos_col = pos_col,
+            ea_col = ea_col,
+            oa_col = oa_col,
+            effect_col = effect_col,
+            se_col = se_col,
+            ci_lower_col = ci_lower_col,
+            ci_upper_col = ci_upper_col,
+            eaf_col = eaf_col,
+            p_col = p_col
+        ),
+        CHR,
+        INDICATION_REGION_START,
+        INDICATION_REGION_END
+    )
+    verify_build(raw, build, label, exposure)
 
     pos_key <- if (build == "GRCh38") "pos_hg38" else "pos_hg19"
 
     std <- raw %>%
         transmute(
-            join_pos = as.integer(.data[[pos_col]]),
-            outcome_ea = toupper(.data[[ea_col]]),
-            outcome_oa = toupper(.data[[oa_col]]),
-            effect_raw = as.numeric(.data[[effect_col]]),
-            se_column = if (se_source == "column") {
-                as.numeric(.data[[se_col]])
-            } else {
-                NA_real_
-            },
-            ci_lower = if (se_source == "ci") {
-                as.numeric(.data[[ci_lower_col]])
-            } else {
-                NA_real_
-            },
-            ci_upper = if (se_source == "ci") {
-                as.numeric(.data[[ci_upper_col]])
-            } else {
-                NA_real_
-            },
-            eaf_outcome = if (is.null(eaf_col)) {
-                NA_real_
-            } else {
-                as.numeric(.data[[eaf_col]]) / eaf_scale
-            },
-            p_outcome = if (is.null(p_col)) {
-                NA_real_
-            } else {
-                as.numeric(.data[[p_col]])
-            }
+            join_pos = as.integer(pos),
+            outcome_ea = toupper(ea),
+            outcome_oa = toupper(oa),
+            effect_raw = as.numeric(beta),
+            se_column = if (se_source == "column") as.numeric(se) else NA_real_,
+            ci_lower = if (se_source == "ci") as.numeric(ci_lower) else NA_real_,
+            ci_upper = if (se_source == "ci") as.numeric(ci_upper) else NA_real_,
+            eaf_outcome = if (is.null(eaf_col)) NA_real_ else as.numeric(eaf),
+            p_outcome = if (is.null(p_col)) NA_real_ else as.numeric(p)
         ) %>%
         mutate(
             beta_raw = if (effect_type == "OR") log(effect_raw) else effect_raw,

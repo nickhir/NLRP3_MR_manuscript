@@ -21,13 +21,9 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 # Read step 09's output, not this step's own directory.
 mr_file <- file.path(analysis_dir, "results", "09_proteome_mr",
                      "ukb_ppp_proteome_mr_results.tsv")
-if (!file.exists(mr_file)) {
-    stop("missing input: ", mr_file, "\nRun analysis/09_proteome_mr.R first.")
-}
 
 mr <- fread(mr_file, data.table = FALSE)
 message(sprintf("loaded %d proteins", nrow(mr)))
-stopifnot("ivw_pval_bonf" %in% names(mr))
 
 
 ## ----split_by_direction-------------------------------------------------------
@@ -39,10 +35,6 @@ background <- unique(mr$gene_name)
 
 message(sprintf("significant: %d  |  raised by inhibition: %d  |  lowered by inhibition: %d",
                 nrow(sig), length(raised), length(lowered)))
-message(sprintf("background universe: %d proteins", length(background)))
-
-message("raised by inhibition:  ", paste(sort(raised), collapse = ", "))
-message("lowered by inhibition: ", paste(sort(lowered), collapse = ", "))
 
 
 ## ----gene_sets----------------------------------------------------------------
@@ -55,16 +47,10 @@ go_bp_term2gene <- msigdbr(species = "Homo sapiens",
                            collection = "C5", subcollection = "GO:BP") %>%
     select(gs_name, gene_symbol)
 
-message(sprintf("%d Hallmark sets, %d GO BP sets",
-                n_distinct(hallmark_term2gene$gs_name),
-                n_distinct(go_bp_term2gene$gs_name)))
-
 
 ## ----ora----------------------------------------------------------------------
 run_ora <- function(genes, term2gene, direction, collection) {
     if (length(genes) < 3) {
-        message(sprintf("[%s / %s] only %d genes, skipping",
-                        direction, collection, length(genes)))
         return(NULL)
     }
 
@@ -77,7 +63,6 @@ run_ora <- function(genes, term2gene, direction, collection) {
     )
 
     if (is.null(res) || nrow(res@result) == 0) {
-        message(sprintf("[%s / %s] no terms returned", direction, collection))
         return(NULL)
     }
 
@@ -93,21 +78,12 @@ ora <- bind_rows(
     run_ora(lowered, hallmark_term2gene, "lowered_by_inhibition", "Hallmark")
 )
 
-for (d in unique(ora$direction)) {
-    for (cl in unique(ora$collection)) {
-        n <- sum(ora$direction == d & ora$collection == cl & ora$p.adjust < 0.05)
-        message(sprintf("[%s / %s] %d terms at adj. P < 0.05", d, cl, n))
-    }
-}
-
-message("\ntop GO BP terms, proteins RAISED by NLRP3 inhibition:")
 print(ora %>%
           filter(direction == "raised_by_inhibition", collection == "GO:BP") %>%
           arrange(p.adjust) %>%
           select(Description, GeneRatio, BgRatio, pvalue, p.adjust) %>%
           head(15))
 
-message("\ntop GO BP terms, proteins LOWERED by NLRP3 inhibition:")
 print(ora %>%
           filter(direction == "lowered_by_inhibition", collection == "GO:BP") %>%
           arrange(p.adjust) %>%

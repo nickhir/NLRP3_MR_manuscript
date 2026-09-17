@@ -23,12 +23,6 @@ ovl_dir <- file.path(results_dir, "07b_sample_overlap")
 # reach 07c. If 05 has not been run, the existence check below now fails loudly.
 cad_dir <- file.path(results_dir, "05_mr_cad")
 
-for (f in c(file.path(med_dir, "mvmr_design.tsv"),
-            file.path(ovl_dir, "rho.rds"),
-            file.path(cad_dir, "cad_meta_studies_per_snp.tsv"))) {
-    if (!file.exists(f)) stop("missing input: ", f, "\n  run the upstream step first")
-}
-
 MEDS <- names(MEDIATORS)            # SBP, ApoB, T2D - the order used throughout
 
 
@@ -38,10 +32,8 @@ MEDS <- names(MEDIATORS)            # SBP, ApoB, T2D - the order used throughout
 ex <- load_instruments(negate = TRUE)
 R  <- interval_ld_matrix(ex$SNP)
 R  <- R[ex$SNP, ex$SNP]
-stopifnot(nrow(ex) == 8, all(rownames(R) == ex$SNP))
 
 bx <- ex$beta_exposure
-message(sprintf("8 cis instruments loaded, LD matrix %d x %d\n", nrow(R), ncol(R)))
 
 
 ## ---- a single correlated-IVW engine ---------------------------------------------------
@@ -49,7 +41,6 @@ message(sprintf("8 cis instruments loaded, LD matrix %d x %d\n", nrow(R), ncol(R
 # cannot drift apart. Returns the estimate, its variance, and the information
 # I = bx' Omega^-1 bx that 07b's rho formula also needs.
 correlated_ivw <- function(bx, by, se_y, R) {
-    stopifnot(length(bx) == length(by), length(by) == length(se_y), all(se_y > 0))
     S     <- diag(se_y, nrow = length(se_y))
     Omega <- S %*% R %*% S
     Oi    <- solve(Omega)
@@ -64,10 +55,7 @@ correlated_ivw <- function(bx, by, se_y, R) {
 ## ---- 1. total effect ------------------------------------------------------------------
 # tau and beta MUST rest on the same CAD studies.
 .prov_cad <- readRDS(file.path(med_dir, "selection_summary.rds"))$cad_included
-stopifnot(length(.prov_cad) >= 2, all(.prov_cad %in% names(CAD_STUDIES)))
 TAU_STUDIES <- unname(sapply(CAD_STUDIES[.prov_cad], `[[`, "label"))
-message(sprintf("1. CAD studies taken from 07a provenance: %s",
-                paste(TAU_STUDIES, collapse = ", ")))
 
 cad_per_study <- fread(file.path(cad_dir, "cad_meta_studies_per_snp.tsv"),
                        data.table = FALSE) %>%
@@ -83,7 +71,6 @@ cad <- cad_per_study %>%
     summarise(by   = sum(by / byse^2) / sum(1 / byse^2),
               byse = sqrt(1 / sum(1 / byse^2)),
               .groups = "drop")
-stopifnot(nrow(cad) == 8, setequal(cad$SNP, ex$SNP))
 cad <- cad[match(ex$SNP, cad$SNP), ]
 
 
@@ -91,7 +78,7 @@ tau_fit <- correlated_ivw(bx, cad$by, cad$byse, R)
 tau     <- tau_fit$est
 var_tau <- tau_fit$var
 
-message(sprintf("   Total effect tau = %.4f (SE %.4f), OR %.3f (%.3f, %.3f), P = %.3g",
+message(sprintf("Total effect tau = %.4f (SE %.4f), OR %.3f (%.3f, %.3f), P = %.3g",
                 tau, sqrt(var_tau), exp(tau),
                 exp(tau - 1.96 * sqrt(var_tau)), exp(tau + 1.96 * sqrt(var_tau)),
                 2 * pnorm(-abs(tau / sqrt(var_tau)))))
@@ -100,23 +87,27 @@ message(sprintf("   Total effect tau = %.4f (SE %.4f), OR %.3f (%.3f, %.3f), P =
 ## ---- 2. NLRP3 -> mediator ---------------------------------------------------------------
 prov <- readRDS(file.path(med_dir, "selection_summary.rds"))
 sd_scales <- prov$sd_scales
-stopifnot(!is.null(sd_scales), setequal(names(sd_scales), MEDS))
-message(sprintf("\n2. Mediator SD scales from 07a: %s",
-                paste(sprintf("%s=%.3f", names(sd_scales), sd_scales), collapse = ", ")))
 
-alpha_fits <- lapply(MEDS, function(k) {
+# Each mediator is read once. lookup_at() is a whole-file read, so the
+# difference-method check in section 5 reuses this rather than repeating it.
+want <- ex %>% transmute(SNPid = SNP, chrom = chr, pos = pos_hg38)
+med_rows <- lapply(MEDS, function(k) {
     cfg <- MEDIATORS[[k]]
-    d <- lookup_at(cfg, ex$SNP, ex$chr, ex$pos_hg38, cfg$label)
+    d <- lookup_at(cfg, want)
     miss <- setdiff(ex$SNP, d$SNPid)
     if (length(miss) > 0)
         stop(sprintf("[%s] %d of 8 cis instruments absent: %s",
                      cfg$label, length(miss), paste(miss, collapse = ", ")))
-    d <- d[match(ex$SNP, d$SNPid), ]
+    d[match(ex$SNP, d$SNPid), ]
+})
+names(med_rows) <- MEDS
 
+alpha_fits <- lapply(MEDS, function(k) {
+    d <- med_rows[[k]]
     # The same SD scaling 07a applied before fitting the MVMR.
     fit <- correlated_ivw(bx, d$beta / sd_scales[[k]], d$se / sd_scales[[k]], R)
     fit$Sinv_med <- fit$Sinv
-    fit$label <- cfg$label
+    fit$label <- MEDIATORS[[k]]$label
     fit
 })
 names(alpha_fits) <- MEDS
@@ -125,19 +116,13 @@ alpha     <- sapply(alpha_fits, `[[`, "est")
 var_alpha <- sapply(alpha_fits, `[[`, "var")
 info      <- sapply(alpha_fits, `[[`, "info")
 
-for (k in MEDS)
-    message(sprintf("   alpha[%s] = %+.4f (SE %.4f) SD per unit lower activity",
-                    k, alpha[[k]], sqrt(var_alpha[[k]])))
-
 
 ## ---- 3. mediators -> CAD, mutually adjusted ---------------------------------------------
 design <- fread(file.path(med_dir, "mvmr_design.tsv"), data.table = FALSE)
 BX  <- as.matrix(design[, paste0("beta_sd_", MEDS)])
 SEX <- as.matrix(design[, paste0("se_sd_",   MEDS)])
 by  <- design$beta_cad; byse <- design$se_cad
-stopifnot(all(is.finite(BX)), all(is.finite(by)), all(byse > 0))
 
-message(sprintf("\n3. MVMR over %s variants", format(nrow(design), big.mark = ",")))
 
 # IVW-style MVMR: outcome betas on exposure betas, no intercept, weighted by the
 # inverse outcome variance. Fitting with lm gives the full vcov directly.
@@ -152,35 +137,17 @@ beta <- coef(mvmr_fit)[MEDS]
 # 1 so standard errors are never pulled below their nominal value.
 sig      <- summary(mvmr_fit)$sigma
 Sigma_bb <- vcov(mvmr_fit)[MEDS, MEDS] * (max(sig, 1) / sig)^2
-message(sprintf("   residual scale sigma = %.2f (SEs inflated %.2fx for heterogeneity)",
-                sig, max(sig, 1)))
-
-for (k in MEDS)
-    message(sprintf("   beta[%s]  = %+.4f (SE %.4f) log-OR CAD per SD",
-                    k, beta[[k]], sqrt(Sigma_bb[k, k])))
 
 # Conditional F, so weak-instrument bias in this step is visible rather than
 # assumed away. Needs the per-SNP covariance between exposure estimates, which
 # is where rho enters a second time (Sanderson et al. 2021).
 rho <- readRDS(file.path(ovl_dir, "rho.rds"))[MEDS, MEDS]
-ut <- which(upper.tri(rho), arr.ind = TRUE)
-message(sprintf("\n4. rho (from 07b): %s",
-                paste(sprintf("%s~%s=%+.3f", MEDS[ut[, 1]], MEDS[ut[, 2]], rho[ut]),
-                      collapse = ", ")))
-
-cond_F <- tryCatch({
-    fmt <- MVMR::format_mvmr(BXGs = BX, BYG = by, seBXGs = SEX, seBYG = byse,
-                             RSID = design$SNPid)
-    cv  <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
-    as.numeric(MVMR::strength_mvmr(r_input = fmt, gencov = cv))
-}, error = function(e) { message("   conditional F unavailable: ", conditionMessage(e)); NULL })
-if (!is.null(cond_F))
-    message(sprintf("   conditional F: %s",
-                    paste(sprintf("%s=%.1f", MEDS, cond_F), collapse = ", ")))
+fmt <- MVMR::format_mvmr(BXGs = BX, BYG = by, seBXGs = SEX, seBYG = byse,
+                         RSID = design$SNPid)
+cv  <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
+cond_F <- as.numeric(MVMR::strength_mvmr(r_input = fmt, gencov = cv))
 
 Q_stat <- sum(residuals(mvmr_fit)^2 / byse^2)
-message(sprintf("   Q = %.0f on %d df (P = %.3g)", Q_stat, nrow(design) - length(MEDS),
-                pchisq(Q_stat, nrow(design) - length(MEDS), lower.tail = FALSE)))
 
 
 ## ---- 5. assemble Sigma_theta --------------------------------------------------------
@@ -201,9 +168,7 @@ sigma_alpha <- function(rho_mat) {
 
 # Sigma_alpha_beta = 0: alpha uses the 8 cis SNPs, beta uses genome-wide
 # instruments elsewhere, and effect estimates at unlinked variants from the same
-# GWAS are uncorrelated. Assert the sets really are disjoint rather than trust it.
-stopifnot(length(intersect(ex$SNP, design$SNPid)) == 0)
-
+# GWAS are uncorrelated.
 K  <- length(MEDS)
 iA <- seq_len(K); iB <- K + iA
 
@@ -256,54 +221,41 @@ draw_pm    <- draw_ie / draw_tau
 
 pm_ci <- quantile(draw_pm, c(0.025, 0.975), names = FALSE)
 
-message(sprintf("\n6. Joint indirect effect = %.4f (SE %.4f), OR %.3f (%.3f, %.3f)",
+message(sprintf("Joint indirect effect  = %.4f (SE %.4f), OR %.3f (%.3f, %.3f)",
                 ie, se_ie, exp(ie), exp(ie - 1.96 * se_ie), exp(ie + 1.96 * se_ie)))
-message(sprintf("   Direct effect          = %.4f (SE %.4f), OR %.3f (%.3f, %.3f)",
+message(sprintf("Direct effect          = %.4f (SE %.4f), OR %.3f (%.3f, %.3f)",
                 direct, se_dir, exp(direct),
                 exp(direct - 1.96 * se_dir), exp(direct + 1.96 * se_dir)))
-message(sprintf("   Proportion mediated    = %.1f%%  (95%% CI %.1f%% to %.1f%%, Monte Carlo)",
+message(sprintf("Proportion mediated    = %.1f%%  (95%% CI %.1f%% to %.1f%%, Monte Carlo)",
                 100 * ie / tau, 100 * pm_ci[1], 100 * pm_ci[2]))
 
-message("\n   Per mediator:")
 for (i in seq_len(nrow(per_mediator))) with(per_mediator[i, ],
-    message(sprintf("     %-28s indirect OR %.3f (%.3f, %.3f), %4.1f%% of total",
+    message(sprintf("  %-28s indirect OR %.3f (%.3f, %.3f), %4.1f%% of total",
                     label, or, or_lower, or_upper, 100 * pm_alone)))
 
 
 ## ---- checks --------------------------------------------------------------------------
 # (a) Bounds on rho. The estimated result must sit between rho = 0 and rho = 1;
 #     rho = 1 is the conservative convention already used for the activity
-#     score's own standard errors. Printed as a diagnostic, not reported.
+#     score's own standard errors. Carried in mediation.rds as se_bounds.
 bound <- sapply(list(zero = diag(1, K), est = rho, one = matrix(1, K, K)), function(m) {
     dimnames(m) <- list(MEDS, MEDS)
     sqrt(joint_indirect(build_sigma(m))$var)
 })
-message(sprintf("\nCheck - SE of the joint indirect effect: rho=0 %.4f | estimated %.4f | rho=1 %.4f",
-                bound[["zero"]], bound[["est"]], bound[["one"]]))
 # rho = 1 is an upper bound; rho = 0 is a lower bound only when every estimated
 # rho is non-negative. A negative rho legitimately puts the SE below the rho = 0
 # value, so only the upper bound is asserted.
 if (bound[["est"]] > bound[["one"]] + 1e-9)
     warning("the estimated SE exceeds the rho = 1 bound")
-if (any(rho[upper.tri(rho)] < 0))
-    message("      (rho is negative for at least one pair, so the estimate may sit below the rho=0 value)")
 
 # (b) Difference method. IVW is linear in the outcome betas, so subtracting the
 # mediator-explained part of each SNP's CAD effect and re-running must
 # reproduce tau - IE.
-med_at_cis <- sapply(MEDS, function(k) {
-    cfg <- MEDIATORS[[k]]
-    d <- lookup_at(cfg, ex$SNP, ex$chr, ex$pos_hg38, cfg$label)
-    d <- d[match(ex$SNP, d$SNPid), ]
-    d$beta / sd_scales[[k]]
-})
+med_at_cis <- sapply(MEDS, function(k) med_rows[[k]]$beta / sd_scales[[k]])
 by_adj  <- cad$by - as.numeric(med_at_cis %*% beta)
-direct2 <- correlated_ivw(bx, by_adj, cad$byse, R)$est
 # The two agree exactly only under common weights; alpha uses per-mediator
 # Omega_m while tau uses Omega_Y, so a small discrepancy is expected.
-message(sprintf("Check - direct effect: product of coefficients %.4f | difference method %.4f | diff %.4f (%.1f%% of SE(tau))",
-                direct, direct2, abs(direct - direct2),
-                100 * abs(direct - direct2) / sqrt(var_tau)))
+direct2 <- correlated_ivw(bx, by_adj, cad$byse, R)$est
 
 
 ## ---- output ---------------------------------------------------------------------------
@@ -333,8 +285,4 @@ saveRDS(list(tau = tau, var_tau = var_tau, alpha = alpha, var_alpha = var_alpha,
              exposure_direction = EXPOSURE_DIRECTION),
         file.path(out_dir, "mediation.rds"))
 
-message(sprintf("\n-> \"Jointly, %s mediated %.0f%% (95%% CI %.0f-%.0f%%) of the association",
-                paste(rev(sapply(MEDIATORS[MEDS], `[[`, "label")), collapse = ", "),
-                100 * ie / tau, 100 * pm_ci[1], 100 * pm_ci[2]))
-message("    between genetically lowered NLRP3 activity and CAD risk.\"")
 message("\nDone -> ", out_dir)

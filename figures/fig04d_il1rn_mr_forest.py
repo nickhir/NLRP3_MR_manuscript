@@ -5,16 +5,11 @@
 # Reads results/08_il1rn_positive_control/, writes figures_out/Fig4D_il1rn_mr_forest.pdf.
 
 import csv
-import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
-import matplotlib
-matplotlib.use("Agg")
+from style import apply_style
+apply_style()
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
 
 from forest_ticks import minor_ticks
 
@@ -24,25 +19,6 @@ ANALYSIS_DIR = SCRIPT_DIR.parent
 IN_FILE = ANALYSIS_DIR / "results" / "08_il1rn_positive_control" / "il1rn_mr_results.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/08_il1rn_positive_control.R first.")
-
-# FONT. One typeface across every panel, R and Python alike - see
-# figures/fig02c_validation_forest.py and fig02b_instrument_forest.R.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), and ExtraBold wins the tie - so
-# fontweight="bold" silently gives ExtraBold.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 # FS_XLAB is 7.0 here, not the standard's 7.8: these two axis titles are the
 # only two-line titles in Figure 4 and at 7.8 they dominated the panel.
@@ -81,9 +57,6 @@ def load():
             else:
                 d["n"] = []
             d["label"] = DISPLAY.get(key, key)
-    missing = [k for k in [PROTEIN] + DISEASES if k not in rows]
-    if missing:
-        raise SystemExit(f"missing outcomes in {IN_FILE}: {missing}")
     return rows
 
 

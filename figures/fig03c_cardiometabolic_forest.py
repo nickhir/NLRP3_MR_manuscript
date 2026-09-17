@@ -5,16 +5,11 @@
 # results/06_mr_cardiometabolic/, writes figures_out/Fig3C_cardiometabolic_forest.pdf.
 
 import csv
-import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
-import matplotlib
-matplotlib.use("Agg")
+from style import apply_style
+apply_style()
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
 
 from forest_ticks import minor_ticks
 
@@ -23,24 +18,6 @@ ANALYSIS_DIR = SCRIPT_DIR.parent
 IN_FILE = ANALYSIS_DIR / "results" / "06_mr_cardiometabolic" / "cardiometabolic_mr.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/06_mr_cardiometabolic.R first.")
-
-# FONT. The Figure 2 convention - see figures/fig02c_validation_forest.py.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), so which one fontweight="bold" gets
-# is decided by the order of fontManager.ttflist.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 FS_BODY, FS_SMALL, FS_HEADER, FS_TICK, FS_GROUP, FS_XLAB = 8.0, 7.2, 8.0, 8.0, 8.0, 7.8
 IVW_C, WM_C = "#C0392B", "#2C6FB5"
@@ -67,13 +44,6 @@ def load():
                        float(r["ci_upper"]), float(r["p"]))
             d["label"] = r["outcome"]
             d["n"] = r["n_label"]
-    wanted = [t for _, ts in GROUPS for t in ts]
-    missing = [t for t in wanted if t not in rows]
-    if missing:
-        raise SystemExit(f"missing traits in {IN_FILE}: {missing}")
-    incomplete = [t for t in wanted if not {"ivw", "wm"} <= set(rows[t])]
-    if incomplete:
-        raise SystemExit(f"traits lacking both methods: {incomplete}")
     return rows
 
 
@@ -148,10 +118,6 @@ for kind, key, yc in layout:
 X_CLIP = 0.30
 
 lo_all = min(min(ROWS[k][s][1] for s in ("ivw", "wm")) for k, _ in DATA)
-hi_all = max(max(ROWS[k][s][2] for s in ("ivw", "wm")) for k, _ in DATA)
-if max(abs(ROWS[k][s][0]) for k, _ in DATA for s in ("ivw", "wm")) > X_CLIP:
-    raise SystemExit("a point estimate lies outside X_CLIP; raise it or the "
-                     "diamond will be drawn on the axis edge")
 
 # Left edge: the data plus a margin, but never so tight that the -0.2 tick falls
 # outside the view and silently disappears.

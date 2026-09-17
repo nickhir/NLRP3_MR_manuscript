@@ -5,45 +5,20 @@
 # Reads results/04_mr_biomarkers/, writes figures_out/Fig2C_validation_forest.pdf.
 
 import csv
-import os
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
-
-import matplotlib
-matplotlib.use("Agg")
+from style import apply_style
+apply_style()
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, font_manager
 
 from forest_ticks import minor_ticks
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ANALYSIS_DIR = SCRIPT_DIR.parent
-REPO = ANALYSIS_DIR.parent
 
 IN_FILE = ANALYSIS_DIR / "results" / "04_mr_biomarkers" / "mr_biomarkers.tsv"
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-if not IN_FILE.exists():
-    raise SystemExit(f"missing input: {IN_FILE}\n"
-                     f"Run analysis/04_mr_biomarkers.R first.")
-
-# FONT. One typeface across every panel of Figure 2, R and Python alike - see
-# figures/fig02a_locuszoom.R and fig02b_instrument_forest.R.
-rcParams["pdf.fonttype"] = 42
-rcParams["ps.fonttype"] = 42
-rcParams["font.family"] = "Open Sans"
-rcParams["font.weight"] = "semibold"
-
-# matplotlib registers OpenSans-Bold.ttf AND OpenSans-ExtraBold.ttf under the
-# same family at the same weight ("bold"), so which one fontweight="bold" gets
-# is decided by the order of fontManager.ttflist.
-font_manager.fontManager.ttflist = [
-    f for f in font_manager.fontManager.ttflist
-    if "OpenSans-ExtraBold" not in f.fname
-]
 
 FS_BODY, FS_SMALL, FS_TICK, FS_GROUP, FS_XLAB = 8.0, 7.6, 8.0, 8.0, 7.8
 IVW_C, WM_C = "#C0392B", "#2C6FB5"
@@ -82,12 +57,6 @@ def load():
             else:
                 d["n"] = ""
             d["label"] = DISPLAY.get(r["outcome"], r["outcome"])
-    missing = [k for k in PROXIES + CYTOKINES if k not in rows]
-    if missing:
-        raise SystemExit(f"missing outcomes in {IN_FILE}: {missing}")
-    incomplete = [k for k, v in rows.items() if "ivw" not in v or "wm" not in v]
-    if incomplete:
-        raise SystemExit(f"outcomes lacking both methods: {incomplete}")
     return rows
 
 

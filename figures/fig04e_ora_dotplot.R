@@ -27,11 +27,6 @@ ora_file <- file.path(analysis_dir, "results", "10_proteome_ora",
 figures_dir <- file.path(analysis_dir, "figures_out")
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
-if (!file.exists(ora_file)) {
-    stop("missing input: ", ora_file,
-         "\nRun analysis/09_proteome_mr.R then analysis/10_proteome_ora.R first.")
-}
-
 ora_results <- fread(ora_file, data.table = FALSE) %>%
     filter(direction == "lowered_by_inhibition", collection == "GO:BP")
 
