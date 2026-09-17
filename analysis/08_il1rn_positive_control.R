@@ -19,9 +19,6 @@ source(here::here("helpers.R"))
 
 out_dir <- step_dir("08_il1rn_positive_control")
 
-# NOTE: do not name any variable `T` or `F` in a script that sources
-# helpers.R - calculate_maf() calls system(..., ignore.stdout = T) and
-# a shadowed T fails with "'ignore.stdout' must be TRUE or FALSE".
 scratch <- scratch_path("il1rn_ld")
 dir.create(scratch, recursive = TRUE, showWarnings = FALSE)
 

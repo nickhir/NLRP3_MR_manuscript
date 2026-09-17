@@ -824,7 +824,7 @@ add_LD <- function(
             data.frame(all_variants),
             file = tmp_variants_file,
             row.names = FALSE,
-            col.names = F
+            col.names = FALSE
         )
 
         # get the chromosome, of the index snp Accepts both naming conventions in
@@ -855,7 +855,7 @@ add_LD <- function(
                 "${plink2_bin} --chr ${chr_} --extract ${tmp_variants_file} --bfile ${reference} --make-pgen --out ${tmp_plink}"
             )
         }
-        system(cmd, ignore.stdout = T)
+        system(cmd, ignore.stdout = TRUE)
 
         # run plink
         system(
@@ -868,7 +868,7 @@ add_LD <- function(
                 "--ld-window-r2 0 --ld-window-kb 99999 --ld-window 99999 --out",
                 out_file
             ),
-            ignore.stdout = T
+            ignore.stdout = TRUE
         )
         if (file.exists(paste0(out_file, ".vcor"))) {
             out <- data.table::fread(input = paste0(out_file, ".vcor")) %>%

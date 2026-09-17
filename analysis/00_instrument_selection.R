@@ -14,7 +14,6 @@ source(here::here("config.R"))
 source(here::here("helpers.R"))
 
 out_dir <- step_dir("00_instrument_selection")
-# do not name anything `T`/`F` here: calculate_maf() calls system(ignore.stdout = T)
 scratch <- scratch_path("nlrp3_selection")
 dir.create(scratch, recursive = TRUE, showWarnings = FALSE)
 
