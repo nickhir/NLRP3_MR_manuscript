@@ -35,14 +35,14 @@ exposure <- fread(instrument_file, data.table = FALSE) %>%
 # were never lifted over.
 hg19_lookup <- tribble(
     ~SNP              , ~pos_hg19  ,
-    "1_247406019_C_T" , 247569321L ,
-    "1_247432548_C_T" , 247595850L ,
-    "1_247433558_A_C" , 247596860L ,
-    "1_247438293_C_T" , 247601595L ,
-    "1_247442302_A_G" , 247605604L ,
-    "1_247452478_A_G" , 247615780L ,
-    "1_247459572_C_T" , 247622874L ,
-    "1_247460342_C_G" , 247623644L
+    "1_247406019_C_T" , 247569321 ,
+    "1_247432548_C_T" , 247595850 ,
+    "1_247433558_A_C" , 247596860 ,
+    "1_247438293_C_T" , 247601595 ,
+    "1_247442302_A_G" , 247605604 ,
+    "1_247452478_A_G" , 247615780 ,
+    "1_247459572_C_T" , 247622874 ,
+    "1_247460342_C_G" , 247623644
 )
 
 exposure <- exposure %>% left_join(hg19_lookup, by = "SNP")
@@ -110,8 +110,8 @@ resolve_proxies <- function(std, proxies, label) {
 # Say plainly which instruments a study is missing and why, rather than letting
 # them vanish into an NA.
 report_missing <- function(harmonised, label) {
-    absent <- harmonised |> dplyr::filter(is.na(beta_raw))
-    mismatch <- harmonised |>
+    absent <- harmonised %>% dplyr::filter(is.na(beta_raw))
+    mismatch <- harmonised %>%
         dplyr::filter(!is.na(beta_raw) & is.na(beta_outcome))
 
     if (nrow(absent) > 0) {

@@ -23,10 +23,10 @@ instruments <- exposure$SNP
 ## ---- the four readouts at the eight instruments --------------------------------
 readouts <- lapply(names(READOUTS), function(k) {
     cfg <- READOUTS[[k]]
-    d <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
-        harmonise_region(cfg, CHR) |>
-        filter(SNPid %in% instruments) |>
-        transmute(SNP = SNPid, trait = k, beta, se, p, n = cfg$n) |>
+    d <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) %>%
+        harmonise_region(cfg, CHR) %>%
+        filter(SNPid %in% instruments) %>%
+        transmute(SNP = SNPid, trait = k, beta, se, p, n = cfg$n) %>%
         arrange(match(SNP, instruments))
 
     found <- sum(instruments %in% d$SNP)
@@ -35,16 +35,16 @@ readouts <- lapply(names(READOUTS), function(k) {
         stop(sprintf("[%s] only %d/8 instruments found at GRCh38 positions", k, found))
     }
     d
-}) |> bind_rows()
+}) %>% bind_rows()
 
 
 ## ---- assemble and verify --------------------------------------------------------
-aligned <- readouts |>
-    select(SNP, trait, beta, se) |>
-    pivot_wider(names_from = trait, values_from = c(beta, se)) |>
-    inner_join(exposure |> select(SNP, chr, pos_hg38, pos_hg19, A1, A2,
+aligned <- readouts %>%
+    select(SNP, trait, beta, se) %>%
+    pivot_wider(names_from = trait, values_from = c(beta, se)) %>%
+    inner_join(exposure %>% select(SNP, chr, pos_hg38, pos_hg19, A1, A2,
                                   eaf_exposure, beta_exposure, se_exposure),
-               by = "SNP") |>
+               by = "SNP") %>%
     arrange(match(SNP, instruments))
 
 # Once every readout is on A1, all four must agree in sign with each other and

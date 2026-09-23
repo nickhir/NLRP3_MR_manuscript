@@ -32,13 +32,13 @@ READOUTS <- c("IL1RN expression", "CRP concentration", "GlycA concentration",
               "Neutrophil count", "IL1Ra activity score")
 
 ## ---- orient to the IL1RN-expression-increasing allele ----------------------
-orientation <- effects |>
-    filter(readout == "IL1RN expression") |>
+orientation <- effects %>%
+    filter(readout == "IL1RN expression") %>%
     transmute(SNP, rsid, flip = beta < 0,
               effect_allele = if_else(beta < 0, A2, A1))
 
-plot_data <- effects |>
-    left_join(orientation |> select(SNP, flip, effect_allele), by = "SNP") |>
+plot_data <- effects %>%
+    left_join(orientation %>% select(SNP, flip, effect_allele), by = "SNP") %>%
     mutate(beta     = if_else(flip, -beta, beta),
            ci_lower = beta - 1.96 * se,
            ci_upper = beta + 1.96 * se)
@@ -46,13 +46,13 @@ plot_data <- effects |>
 # Rows ordered by the activity score, strongest at the top. Fig 2B orders by
 # its latent factor the same way; its values are all negative and ours all
 # positive, hence desc() here.
-row_order <- plot_data |>
-    filter(readout == "IL1Ra activity score") |>
-    arrange(desc(beta)) |>
+row_order <- plot_data %>%
+    filter(readout == "IL1Ra activity score") %>%
+    arrange(desc(beta)) %>%
     mutate(snp_label = paste0(rsid, "-", effect_allele))
 
-plot_data <- plot_data |>
-    left_join(row_order |> select(SNP, snp_label), by = "SNP") |>
+plot_data <- plot_data %>%
+    left_join(row_order %>% select(SNP, snp_label), by = "SNP") %>%
     mutate(snp_label = factor(snp_label, levels = rev(row_order$snp_label)),
            readout   = factor(readout, levels = READOUTS))
 
@@ -67,7 +67,7 @@ POINT_FILL_FOLLOWS_COLOUR <- TRUE   # see deviation 3
 
 create_forest_subplot <- function(data, trait_name, trait_label,
                                   show_yaxis = FALSE, italic_first = FALSE) {
-    trait_data  <- data |> filter(readout == trait_name)
+    trait_data  <- data %>% filter(readout == trait_name)
     trait_color <- trait_colors[[trait_name]]
     if (is.null(trait_color)) trait_color <- "black"
     point_fill  <- if (POINT_FILL_FOLLOWS_COLOUR) trait_color else "white"

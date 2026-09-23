@@ -14,14 +14,14 @@ source(here::here("helpers.R"))
 
 out_dir <- step_dir("07b_sample_overlap")
 
-GRID_BP <- 100000L   # one variant per 100 kb - wider than most European LD blocks
+GRID_BP <- 100000   # one variant per 100 kb - wider than most European LD blocks
 NULL_P  <- 0.05      # "null for both traits"
 GRID_TRAIT <- "SBP"  # whose variant set defines the grid
 
 
 ## ---- 1. the grid ------------------------------------------------------------------
 # One variant per `bin_bp` window, genome-wide.
-thin_genome <- function(cfg, bin_bp = 100000L) {
+thin_genome <- function(cfg, bin_bp = 100000) {
     read_genome(cfg) %>%
         mutate(row = row_number(), bin = floor(pos / bin_bp)) %>%
         group_by(chrom, bin) %>%
@@ -38,7 +38,7 @@ thin_genome <- function(cfg, bin_bp = 100000L) {
 }
 
 grid <- thin_genome(MEDIATORS[[GRID_TRAIT]], bin_bp = GRID_BP)
-message(sprintf("1-per-%d kb grid from %s: %s variants", GRID_BP / 1000L,
+message(sprintf("1-per-%d kb grid from %s: %s variants", GRID_BP / 1000,
                 MEDIATORS[[GRID_TRAIT]]$label, format(nrow(grid), big.mark = ",")))
 
 

@@ -28,10 +28,10 @@ IVW_C, WM_C = "#C0392B", "#2C6FB5"
 
 # outcome label in the results file -> how it appears in the panel
 PROTEIN = "IL1Ra concentration"
-DISEASES = ["Gout", "Rheumatoid arthritis (Ishigaki)"]
+DISEASES = ["Gout", "Rheumatoid arthritis"]
 DISPLAY = {PROTEIN: "IL1Ra concentration",
            "Gout": "Gout",
-           "Rheumatoid arthritis (Ishigaki)": "Rheumatoid arthritis"}
+           "Rheumatoid arthritis": "Rheumatoid arthritis"}
 
 
 def load():

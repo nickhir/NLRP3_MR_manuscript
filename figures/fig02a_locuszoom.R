@@ -86,7 +86,7 @@ LD_SCHEME <- c(
 # rather than dropped - a variant with no LD estimate is still a real
 # association, and hiding it would overstate how.
 load_panel <- function(trait) {
-    fread(file.path(coloc_dir, PANEL_FILES[[trait]]), data.table = FALSE) |>
+    fread(file.path(coloc_dir, PANEL_FILES[[trait]]), data.table = FALSE) %>%
         mutate(chrom = as.integer(chrom), pos = as.integer(pos),
                panel_id = to_panel_id(SNPid))
 }
@@ -222,8 +222,8 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
     # Deviation 2: the instruments, ringed in gold. gg_scatter plots position in
     # Mb, so the layer has to be on the same scale.
     if (!is.null(highlights)) {
-        hl <- locus_data$data |>
-            filter(SNPid %in% highlights) |>
+        hl <- locus_data$data %>%
+            filter(SNPid %in% highlights) %>%
             mutate(.x = .data[[locus_data$pos]] / 1e6,
                    .y = .data[[locus_data$yvar]])
         locus_plot <- locus_plot +

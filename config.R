@@ -43,9 +43,9 @@ ld_panel <- paste0(
 
 
 ## ---- the NLRP3 locus (GRCh38) ------------------------------------------------
-CHR <- 1L
-GENE_START <- 247416156L # NLRP3 gene body, negative strand
-GENE_END <- 247449108L
+CHR <- 1
+GENE_START <- 247416156 # NLRP3 gene body, negative strand
+GENE_END <- 247449108
 
 # +/-200 kb: the window used for colocalisation and COJO conditioning.
 LOCUS_START <- as.integer(GENE_START - 200e3)
@@ -90,7 +90,7 @@ READOUTS <- list(
     NLRP3_expression = list(
         label = "NLRP3 expression",
         file = file.path(dataset_dir, "nlrp3_eqtl_interval_chr1.tsv"),
-        n = 4732L,
+        n = 4732,
         build = "GRCh38",
         chr_col = "chr",
         pos_col = "pos_b38",
@@ -108,7 +108,7 @@ READOUTS <- list(
     CRP = list(
         label = "CRP concentration",
         file = file.path(dataset_dir, "crp_GCST90029070.h.tsv.gz"),
-        n = 575531L,
+        n = 575531,
         build = "GRCh38",
         chr_col = "hm_chrom",
         pos_col = "hm_pos",
@@ -122,7 +122,7 @@ READOUTS <- list(
     GlycA = list(
         label = "GlycA concentration",
         file = file.path(dataset_dir, "glyca_GCST90497330.h.tsv.gz"),
-        n = 434646L,
+        n = 434646,
         build = "GRCh38",
         chr_col = "chromosome",
         pos_col = "base_pair_location",
@@ -138,7 +138,7 @@ READOUTS <- list(
     Neutrophil_count = list(
         label = "Neutrophil count",
         file = file.path(dataset_dir, "neutrophil_count_GCST90002351.h.tsv.gz"),
-        n = 519288L,
+        n = 519288,
         build = "GRCh38",
         chr_col = "hm_chrom",
         pos_col = "hm_pos",
@@ -163,15 +163,15 @@ READOUTS <- list(
 PROXY_R2_MIN <- 0.9
 PERICARDITIS_PROXIES <- tibble::tribble(
     ~SNP              , ~proxy_pos , ~proxy_a1 , ~proxy_a2 , ~r        ,
-    "1_247438293_C_T" , 247442974L , "C"       , "T"       , -0.992093 , # r2 = 0.984
-    "1_247452478_A_G" , 247457731L , "A"       , "G"       ,  0.831290 # r2 = 0.691
+    "1_247438293_C_T" , 247442974 , "C"       , "T"       , -0.992093 , # r2 = 0.984
+    "1_247452478_A_G" , 247457731 , "A"       , "G"       ,  0.831290 # r2 = 0.691
 )
 PERICARDITIS_PROXIES <-
     PERICARDITIS_PROXIES[PERICARDITIS_PROXIES$r^2 >= PROXY_R2_MIN, ]
 
 # The window every outcome is read over.
-INDICATION_REGION_START <- 247390000L
-INDICATION_REGION_END <- 247650000L
+INDICATION_REGION_START <- 247390000
+INDICATION_REGION_END <- 247650000
 
 # One entry per outcome: the three imaging traits first, then the disease
 # outcomes, in the order the results table and the Figure 5 forest use. Each
@@ -371,26 +371,30 @@ OUTCOMES <- list(
         n_cases = 32519,
         n_controls = 2062805
     ),
+    # UK Biobank WGS, ICD-10 M17 gonarthrosis, non-Finnish European only, so every
+    # outcome in this registry is a single ancestry. REGENIE reports a log-odds
+    # beta with its own standard error, not an odds ratio with a confidence
+    # interval. The release does not carry two of the eight instruments
+    # (1_247406019_C_T, 1_247433558_A_C), so this outcome is fitted on six.
     knee_oa = list(
         label = "Knee osteoarthritis",
         file = file.path(
             dataset_dir,
-            "knee_osteoarthritis_GCST90566800.h.tsv.gz"
+            "knee_osteoarthritis_GCST90474022.h.tsv.gz"
         ),
         build = "GRCh38",
         chr_col = "chromosome",
         pos_col = "base_pair_location",
         ea_col = "effect_allele",
         oa_col = "other_allele",
-        effect_col = "odds_ratio",
-        effect_type = "OR",
-        se_source = "ci",
-        ci_lower_col = "ci_lower",
-        ci_upper_col = "ci_upper",
+        effect_col = "beta",
+        effect_type = "beta",
+        se_source = "column",
+        se_col = "standard_error",
         eaf_col = "effect_allele_frequency",
         p_col = "p_value",
-        n_cases = 172256,
-        n_controls = 1144244
+        n_cases = 44190,
+        n_controls = 414250
     ),
     mi = list(
         label = "Myocardial infarction",
@@ -432,7 +436,7 @@ OUTCOMES <- list(
         n_controls = 244254
     ),
     parkinsons = list(
-        label = "Parkinson's disease (Nalls 2019)",
+        label = "Parkinson's disease",
         file = file.path(dataset_dir, "parkinsons_disease_GCST009325.tsv"),
         build = "GRCh37",
         chr_col = "chromosome",
@@ -465,7 +469,7 @@ OUTCOMES <- list(
         n_controls = 1457822
     ),
     ra_ishigaki = list(
-        label = "Rheumatoid arthritis (Ishigaki)",
+        label = "Rheumatoid arthritis",
         file = file.path(
             dataset_dir,
             "rheumatoid_arthritis_ishigaki_GCST90132223.h.tsv.gz"
@@ -632,7 +636,7 @@ CARDIOMETABOLIC <- list(
             label = "Triglycerides",
             group = "Lipids",
             accession = "GCST90239664",
-            n = 1320016L,
+            n = 1320016,
             n_label = "1,320,016",
             file = file.path(dataset_dir, "triglycerides_GCST90239664.h.tsv.gz")
         )
@@ -643,7 +647,7 @@ CARDIOMETABOLIC <- list(
             label = "Lp(a)",
             group = "Lipids",
             accession = "GCST90474389",
-            n = 343821L,
+            n = 343821,
             n_label = "343,821",
             file = file.path(
                 dataset_dir,
@@ -657,7 +661,7 @@ CARDIOMETABOLIC <- list(
             label = "ApoB",
             group = "Lipids",
             accession = "GCST90497142",
-            n = 434646L,
+            n = 434646,
             n_label = "434,646",
             file = file.path(
                 dataset_dir,
@@ -671,7 +675,7 @@ CARDIOMETABOLIC <- list(
             label = "Non-HDL-C",
             group = "Lipids",
             accession = "GCST90239670",
-            n = 1320016L,
+            n = 1320016,
             n_label = "1,320,016",
             file = file.path(
                 dataset_dir,
@@ -685,7 +689,7 @@ CARDIOMETABOLIC <- list(
             label = "LDL-C",
             group = "Lipids",
             accession = "GCST90239658",
-            n = 1320016L,
+            n = 1320016,
             n_label = "1,320,016",
             file = file.path(
                 dataset_dir,
@@ -699,7 +703,7 @@ CARDIOMETABOLIC <- list(
             label = "DBP",
             group = "Blood pressure",
             accession = "GCST90310295",
-            n = 1028980L,
+            n = 1028980,
             n_label = "1,028,980",
             standardise_sd = TRUE,
             file = file.path(dataset_dir, "diastolic_bp_GCST90310295.h.tsv.gz")
@@ -711,7 +715,7 @@ CARDIOMETABOLIC <- list(
             label = "SBP",
             group = "Blood pressure",
             accession = "GCST90310294",
-            n = 1028980L,
+            n = 1028980,
             n_label = "1,028,980",
             standardise_sd = TRUE,
             file = file.path(dataset_dir, "systolic_bp_GCST90310294.h.tsv.gz")
@@ -723,7 +727,7 @@ CARDIOMETABOLIC <- list(
         label = "Alcohol",
         group = "Lifestyle",
         accession = "GCST007461",
-        n = 941280L,
+        n = 941280,
         n_label = "941,280",
         build = "GRCh37",
         chr_col = "CHROM",
@@ -744,8 +748,8 @@ CARDIOMETABOLIC <- list(
         label = "Smoking",
         group = "Lifestyle",
         accession = "GCST007474",
-        n_cases = 557337L,
-        n_controls = 674754L,
+        n_cases = 557337,
+        n_controls = 674754,
         n_label = "557,337 / 674,754",
         build = "GRCh37",
         chr_col = "CHROM",
@@ -766,7 +770,7 @@ CARDIOMETABOLIC <- list(
         label = "BMI",
         group = "Metabolic",
         accession = "GCST009004",
-        n = 806834L,
+        n = 806834,
         n_label = "806,834",
         build = "GRCh37",
         chr_col = "CHR",
@@ -786,8 +790,8 @@ CARDIOMETABOLIC <- list(
         label = "T2D",
         group = "Metabolic",
         accession = "T2DGGI",
-        n_cases = 242283L,
-        n_controls = 1569734L,
+        n_cases = 242283,
+        n_controls = 1569734,
         n_label = "242,283 / 1,569,734",
         build = "GRCh38",
         chr_col = "Chromsome",
@@ -803,7 +807,7 @@ CARDIOMETABOLIC <- list(
     )
 )
 ## ---- CAD outcome studies for the meta-analysis -------------------------------
-# Only these two are available genome-wide.
+# Aragam, MVP and FinnGen are genome-wide; All of Us is an extract.
 CAD_STUDIES <- list(
     aragam = list(
         label = "Aragam et al.",
@@ -823,8 +827,8 @@ CAD_STUDIES <- list(
         eaf_col = "effect_allele_frequency",
         p_col = "p_value",
         rsid_col = "rsid",
-        n_cases = 181522L,
-        n_controls = 984168L
+        n_cases = 181522,
+        n_controls = 984168
     ),
     mvp = list(
         label = "MVP",
@@ -846,8 +850,8 @@ CAD_STUDIES <- list(
         eaf_col = "effect_allele_frequency",
         p_col = "p_value",
         rsid_col = "rsid",
-        n_cases = 124302L,
-        n_controls = 300039L
+        n_cases = 124302,
+        n_controls = 300039
     ),
     finngen = list(
         label = "FinnGen",
@@ -867,30 +871,32 @@ CAD_STUDIES <- list(
         eaf_col = "af_alt",
         p_col = "pval",
         rsid_col = "rsids",
-        n_cases = 63307L,
-        n_controls = 416171L
+        n_cases = 63307,
+        n_controls = 416171
     ),
-    # All of Us: awaiting genome-wide data.
+    # All of Us cannot be downloaded genome-wide. A collaborator extracted the
+    # variants this pipeline reads - the NLRP3 window and every mediator
+    # instrument - from SAIGE output: phecode CV_404.2, ACAF callset, EUR.
+    # There are no allele columns. MarkerID is chr:pos_Allele1/Allele2, and
+    # BETA and AF_Allele2 refer to Allele2.
     allofus = list(
         label = "All of Us",
         file = file.path(
             dataset_dir,
-            "coronary_atherosclerosis_allofus_genomewide.tsv.gz"
+            "coronary_atherosclerosis_allofus_CV_404_2.instruments.tsv"
         ),
         build = "GRCh38",
-        chr_col = "chromosome",
-        pos_col = "base_pair_location",
-        ea_col = "effect_allele",
-        oa_col = "other_allele",
-        effect_col = "beta",
+        chr_col = "CHR",
+        pos_col = "POS",
+        marker_col = "MarkerID",
+        effect_col = "BETA",
         effect_type = "beta",
         se_source = "column",
-        se_col = "standard_error",
-        eaf_col = "effect_allele_frequency",
-        p_col = "p_value",
-        rsid_col = "rsid",
-        n_cases = 19856L,
-        n_controls = 150307L
+        se_col = "SE",
+        eaf_col = "AF_Allele2",
+        p_col = "Pvalue",
+        n_cases = 19856,
+        n_controls = 150307
     )
 )
 

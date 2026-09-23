@@ -37,39 +37,29 @@ Sigma_alpha <- m$Sigma_theta[paste0("a_", ORDER), paste0("a_", ORDER), drop = FA
 dimnames(Sigma_alpha) <- list(ORDER, ORDER)
 
 
-## ---- 2. the design, and which variants instrument what -----------------------------
+## ---- 2. the full design and model-specific pooled clumps ----------------------------
 design <- fread(file.path(med_dir, "mvmr_design.tsv"), data.table = FALSE)
-ins    <- fread(file.path(med_dir, "mediator_instruments.tsv"), data.table = FALSE)
-
-# Instrument membership, restricted to variants that survived into the design.
-own <- lapply(ORDER, function(k)
-    intersect(design$SNPid, ins$SNPid[ins$mediator == k]))
-names(own) <- ORDER
+instrument_sets <- readRDS(file.path(med_dir, "mvmr_instrument_sets.rds"))
 
 
 ## ---- 3. one MVMR fitter, used for every step ---------------------------------------
-# Identical to 07c's: weighted least squares with no intercept, then the
-# multiplicative random-effects correction with sigma floored at 1 so standard
-# errors are never pulled below their nominal.
+# Original weighted regression and random-effects covariance, as in 07c.
+# Each step uses its own pooled clump, not a subset of the final model's clump.
 fit_mvmr <- function(meds) {
-    rows <- design$SNPid %in% unlist(own[meds], use.names = FALSE)
+    keep <- instrument_sets[[paste(meds, collapse = "+")]]
+    stopifnot(length(keep) > length(meds), all(keep %in% design$SNPid))
+    rows <- design$SNPid %in% keep
     d    <- design[rows, , drop = FALSE]
 
     df <- as.data.frame(d[, paste0("beta_sd_", meds), drop = FALSE])
     names(df) <- meds
     df$by <- d$beta_cad
-
-    f   <- lm(reformulate(meds, response = "by", intercept = FALSE),
-              data = df, weights = 1 / d$se_cad^2)
+    f <- lm(reformulate(meds, response = "by", intercept = FALSE),
+            data = df, weights = 1 / d$se_cad^2)
     sig <- summary(f)$sigma
-    V   <- vcov(f)[meds, meds, drop = FALSE] * (max(sig, 1) / sig)^2
-    dimnames(V) <- list(meds, meds)
-
-    list(beta  = coef(f)[meds],
-         V     = V,
-         sigma = sig,
-         n     = nrow(d),
-         Q     = sum(residuals(f)^2 / d$se_cad^2))
+    V <- vcov(f)[meds, meds, drop = FALSE] * (max(sig, 1) / sig)^2
+    list(beta = coef(f)[meds], V = V, sigma = sig, n = nrow(d),
+         Q = sum(residuals(f)^2 / d$se_cad^2), snps = d$SNPid)
 }
 
 ## ---- 4. walk the sequence ------------------------------------------------------------
@@ -105,7 +95,7 @@ for (i in seq_along(ORDER)) {
 ## ---- 5. assemble ---------------------------------------------------------------------
 res <- lapply(seq_along(steps), function(i) {
     s <- steps[[i]]
-    tibble(step        = i - 1L,
+    tibble(step        = i - 1,
            label       = s$label,
            accounted   = if (length(s$meds) == 0) NA_character_
                          else paste(s$meds, collapse = "+"),

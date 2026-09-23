@@ -95,7 +95,11 @@ prepare_readout <- function(key, panel_ids = NULL) {
 
     out <- df %>%
         mutate(
-            p = if (isTRUE(cfg$neglog10_p)) 10^(-as.numeric(p)) else as.numeric(p)
+            p = if (isTRUE(cfg$neglog10_p)) {
+                10^(-as.numeric(p))
+            } else {
+                as.numeric(p)
+            }
         ) %>%
         transmute(
             SNP = SNPid,
@@ -146,7 +150,7 @@ panel_freq$.A1 <- vapply(
     strsplit(panel_freq$ID, "_", fixed = TRUE),
     `[`,
     character(1),
-    3L
+    3
 )
 panel_freq$freq_panel <- ifelse(
     panel_freq$.A1 != panel_freq$ALT,
@@ -275,7 +279,22 @@ membership <- components(graph_from_adjacency_matrix(
     diag = FALSE
 ))$membership
 comp_list <- split(names(membership), membership)
-comp_list <- comp_list[vapply(comp_list, length, 1L) > 1]
+
+# Every component and the readouts it turns up in, before the two-trait filter
+# below. This is what figures/supp/fig_s1_variant_overlap.R plots.
+in_trait <- function(b, tn) any(grepl(paste0("^", tn), b))
+write_tsv(
+    tibble(
+        comp_id = names(comp_list),
+        eQTLs   = vapply(comp_list, in_trait, TRUE, "eQTLs"),
+        CRP     = vapply(comp_list, in_trait, TRUE, "CRP"),
+        GlycA   = vapply(comp_list, in_trait, TRUE, "GlycA"),
+        neutro  = vapply(comp_list, in_trait, TRUE, "neutro")
+    ),
+    file.path(out_dir, "nlrp3_signal_components.tsv")
+)
+
+comp_list <- comp_list[vapply(comp_list, length, 1) > 1]
 
 shared <- lapply(names(comp_list), function(id) {
     b <- comp_list[[id]]
@@ -303,7 +322,7 @@ shared$SNPs <- vapply(
 
 ## ---- step 4  one representative per component ----------------------------------
 pick_best <- function(snps) {
-    av <- vapply(snps, availability, 1L)
+    av <- vapply(snps, availability, 1)
     best <- snps[av == max(av)]
     summary_stats$CRP %>%
         filter(SNP %in% best) %>%
@@ -317,7 +336,7 @@ instruments <- lapply(shared$SNPs, function(s) {
 
 
 ## ---- step 5  proxy replacement -------------------------------------------------
-need_proxy <- instruments[vapply(instruments, availability, 1L) != 4]
+need_proxy <- instruments[vapply(instruments, availability, 1) != 4]
 proxy_log <- tibble(
     original = character(),
     replacement = character(),
@@ -333,7 +352,7 @@ if (length(need_proxy) > 0) {
     if (nrow(hl) > 0) {
         reps <- lapply(unique(hl$ID_A), function(s) {
             cand <- hl %>% filter(ID_A == s)
-            cand$av <- vapply(cand$ID_B, availability, 1L)
+            cand$av <- vapply(cand$ID_B, availability, 1)
             cand <- cand %>% filter(av == 4)
             if (nrow(cand) == 0) {
                 return(NULL)
@@ -467,10 +486,10 @@ out <- score %>%
             strsplit(SNP, "_", fixed = TRUE),
             `[`,
             character(1),
-            2L
+            2
         )),
-        A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3L),
-        A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4L),
+        A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3),
+        A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4),
         beta_exposure = beta,
         se_exposure = se
     ) %>%

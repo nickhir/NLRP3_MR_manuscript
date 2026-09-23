@@ -18,6 +18,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ANALYSIS_DIR = SCRIPT_DIR.parent
 IN_FILE = (ANALYSIS_DIR / "results" / "12_mr_indications" /
            "additional_indications_mr_results.tsv")
+# Case and control counts ride along in step 12's harmonised export, where they
+# came from config.R. Reading them here rather than retyping them means the
+# figure cannot print one study's sample size beside another study's estimate.
+N_FILE = (ANALYSIS_DIR / "results" / "12_mr_indications" /
+          "additional_indications_harmonised.tsv")
 OUT_DIR = ANALYSIS_DIR / "figures_out"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -28,34 +33,14 @@ IVW_C, WM_C = "#C0392B", "#2C6FB5"
 METHODS = (("IVW (LD-corrected)", "IVW", IVW_C),
            ("Weighted median", "Weighted Median", WM_C))
 
-# The ST04 indications: key in the results file -> (label, cases, controls).
-# Counts are taken verbatim from Supplementary Table 4.
-INDICATIONS = {
-    "Pericarditis":                     ("Pericarditis",                    4_894, 1_457_822),
-    "Heart failure (reduced EF)":       ("Heart failure (reduced EF)",     31_220,   407_213),
-    "Myocardial infarction":            ("Myocardial infarction",          39_074,   392_979),
-    "Obesity":                          ("Obesity",                       169_600,   244_254),
-    "Type 2 diabetes":                  ("Type 2 diabetes",               242_283, 1_569_734),
-    "Rheumatoid arthritis (Ishigaki)":  ("Rheumatoid arthritis",           22_350,    74_823),
-    "Gout":                             ("Gout",                           42_034,   397_989),
-    "Ulcerative colitis":               ("Ulcerative colitis",             12_366,    33_609),
-    "Chronic airway obstruction":       ("Chronic airway obstruction",    103_054,   315_450),
-    "Allergic rhinitis":                ("Allergic rhinitis",              92_310,   311_377),
-    "Asthma":                           ("Asthma",                        121_940, 1_254_131),
-    "Parkinson's disease (Nalls 2019)": ("Parkinson's disease",            33_674,   449_056),
-    "Amyotrophic lateral sclerosis":    ("Amyotrophic lateral sclerosis",  27_205,   110_881),
-    "Knee osteoarthritis":              ("Knee osteoarthritis",           172_256, 1_144_244),
-    "Hospitalized COVID-19":            ("Hospitalized COVID-19",          32_519, 2_062_805),
-}
-
 GROUPS = [
     ("Cardiovascular", ["Pericarditis", "Heart failure (reduced EF)",
                         "Myocardial infarction"]),
     ("Metabolic", ["Obesity", "Type 2 diabetes"]),
     ("Inflammatory / autoimmune",
-     ["Rheumatoid arthritis (Ishigaki)", "Gout", "Ulcerative colitis"]),
+     ["Rheumatoid arthritis", "Gout", "Ulcerative colitis"]),
     ("Respiratory", ["Chronic airway obstruction", "Allergic rhinitis", "Asthma"]),
-    ("Neurological", ["Parkinson's disease (Nalls 2019)",
+    ("Neurological", ["Parkinson's disease",
                       "Amyotrophic lateral sclerosis"]),
     ("Other", ["Knee osteoarthritis", "Hospitalized COVID-19"]),
 ]
@@ -78,9 +63,12 @@ def fmt_est(e, lo, hi):
 
 # ---- data -------------------------------------------------------------------
 res = pd.read_csv(IN_FILE, sep="\t")
+COUNTS = (pd.read_csv(N_FILE, sep="\t")
+            .drop_duplicates("outcome")
+            .set_index("outcome")[["n_cases", "n_controls"]])
 
 ROWS = {}
-for key in INDICATIONS:
+for key in [k for _group, members in GROUPS for k in members]:
     d = {}
     for col, _label, _c in METHODS:
         r = res[(res["outcome"] == key) & (res["method"] == col)]
@@ -138,7 +126,7 @@ def fh(mm_val):
 
 
 # Column x positions, in figure fractions. The label column has to hold
-# "Rheumatoid arthritis (Ishigaki)" - 31 characters, about 44 mm at 8 pt, which
+# "Amyotrophic lateral sclerosis" - 29 characters, about 41 mm at 8 pt, which
 # is what sets X_N - and the count column "242,283 / 1,569,734".
 X_LABEL, X_N = 0.012, 0.295
 FOREST_L, FOREST_W = 0.465, 0.195
@@ -160,10 +148,10 @@ for kind, key, y_mm in layout:
         fig.text(X_LABEL, fy(y_mm), key, fontsize=FS_GROUP, fontweight="bold",
                  va="center")
         continue
-    label, cases, controls = INDICATIONS[key]
+    cases, controls = COUNTS.loc[key]
     # Label and counts sit on the midline between the two method rows.
-    fig.text(X_LABEL + 0.014, fy(y_mm), label, fontsize=FS_BODY, va="center")
-    fig.text(X_N, fy(y_mm), f"{cases:,} / {controls:,}", fontsize=FS_BODY,
+    fig.text(X_LABEL + 0.014, fy(y_mm), key, fontsize=FS_BODY, va="center")
+    fig.text(X_N, fy(y_mm), f"{cases:,.0f} / {controls:,.0f}", fontsize=FS_BODY,
              va="center")
     for (col, _l, _c), off in zip(METHODS, (DY, -DY)):
         e, lo, hi, p = ROWS[key][col]

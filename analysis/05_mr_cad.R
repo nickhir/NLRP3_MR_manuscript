@@ -18,8 +18,8 @@ source(here::here("helpers.R"))
 output_dir <- step_dir("05_mr_cad")
 
 # This step's own read window, deliberately not config.R's LOCUS_START/END.
-REGION_START <- 247390000L
-REGION_END   <- 247650000L
+REGION_START <- 247390000
+REGION_END   <- 247650000
 
 # ---- exposure, oriented to LOWER NLRP3 activity ---------------------------
 # negate = TRUE: per one-unit DECREASE in the activity score
@@ -59,7 +59,7 @@ interval_ld <- function(snp_ids) {
 }
 ld_full <- interval_ld(exposure$SNP)
 
-# ---- the three studies ----------------------------------------------------
+# ---- the four studies -----------------------------------------------------
 aragam <- read_region(CAD_STUDIES$aragam, CHR, REGION_START, REGION_END) %>%
     transmute(join_pos = as.integer(pos),
               ea = toupper(ea), oa = toupper(oa),
@@ -80,17 +80,12 @@ finngen <- read_region(CAD_STUDIES$finngen, CHR, REGION_START, REGION_END) %>%
               b = as.numeric(beta), se = as.numeric(se)) %>%
     harmonise("FinnGen")
 
-# All of Us: long format, already subset to the instruments. MarkerID is
-# chr:pos_OTHER/EFFECT, so the allele after the slash is SAIGE's Allele2 and
-# the one BETA refers to.
-aou <- read_tsv(file.path(dataset_dir, "coronary_atherosclerosis_allofus_CV_404_2.tsv"),
-                show_col_types = FALSE) %>%
-    mutate(across(where(is.character), ~ sub("\r$", "", .x))) %>%
-    filter(phenoname == "CV_404.2") %>%
-    transmute(join_pos = as.integer(POS),
-              oa = toupper(sub("^.*_([ACGT]+)/[ACGT]+$", "\\1", MarkerID)),
-              ea = toupper(sub("^.*_[ACGT]+/([ACGT]+)$", "\\1", MarkerID)),
-              b  = as.numeric(BETA), se = as.numeric(SE)) %>%
+# All of Us is an extract, not genome-wide; read_region() takes its alleles
+# from SAIGE's MarkerID (see config.R).
+aou <- read_region(CAD_STUDIES$allofus, CHR, REGION_START, REGION_END) %>%
+    transmute(join_pos = as.integer(pos),
+              ea = toupper(ea), oa = toupper(oa),
+              b = as.numeric(beta), se = as.numeric(se)) %>%
     harmonise("All of Us")
 
 studies <- list("Aragam et al." = aragam, "MVP" = mvp,

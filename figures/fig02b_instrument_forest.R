@@ -50,24 +50,24 @@ SCORE <- "NLRP3 activity score"
 
 # The activity score as a fifth "readout", on the variant's own allele - step 02
 # writes it un-negated, and the flip below is what turns it round.
-score <- aligned |>
+score <- aligned %>%
     transmute(SNP, trait = SCORE, beta = beta_exposure, se = se_exposure)
 
-effects <- readouts |>
-    select(SNP, trait, beta, se) |>
-    bind_rows(score) |>
-    left_join(aligned |> select(SNP, A1, A2), by = "SNP")
+effects <- readouts %>%
+    select(SNP, trait, beta, se) %>%
+    bind_rows(score) %>%
+    left_join(aligned %>% select(SNP, A1, A2), by = "SNP")
 
 effects <- left_join(effects, RSIDS, by = "SNP")
 
 ## ---- orient to the NLRP3-activity-LOWERING allele ---------------------------
-orientation <- effects |>
-    filter(trait == SCORE) |>
+orientation <- effects %>%
+    filter(trait == SCORE) %>%
     transmute(SNP, flip = beta > 0,
               effect_allele = if_else(beta > 0, A2, A1))
 
-plot_data <- effects |>
-    left_join(orientation, by = "SNP") |>
+plot_data <- effects %>%
+    left_join(orientation, by = "SNP") %>%
     mutate(beta     = if_else(flip, -beta, beta),
            ci_lower = beta - 1.96 * se,
            ci_upper = beta + 1.96 * se)
@@ -75,7 +75,7 @@ plot_data <- effects |>
 # Deciding the flip on expression instead of the score must pick the same eight
 # alleles, or the two disagree in sign somewhere and the panel would be reading
 # a different exposure than its title claims.
-expr <- plot_data |> filter(trait == "NLRP3_expression")
+expr <- plot_data %>% filter(trait == "NLRP3_expression")
 if (any(expr$beta > 0)) {
     stop("orienting on the activity score leaves NLRP3 expression positive at: ",
          paste(expr$rsid[expr$beta > 0], collapse = ", "),
@@ -89,13 +89,13 @@ if (any(plot_data$beta > 0)) {
 }
 
 # Rows ordered by the activity score, strongest effect at the top.
-row_order <- plot_data |>
-    filter(trait == SCORE) |>
-    arrange(beta) |>
+row_order <- plot_data %>%
+    filter(trait == SCORE) %>%
+    arrange(beta) %>%
     mutate(snp_label = paste0(rsid, "-", effect_allele))
 
-plot_data <- plot_data |>
-    left_join(row_order |> select(SNP, snp_label), by = "SNP") |>
+plot_data <- plot_data %>%
+    left_join(row_order %>% select(SNP, snp_label), by = "SNP") %>%
     mutate(snp_label = factor(snp_label, levels = rev(row_order$snp_label)))
 
 ## ---- subplot builder --------------------------------------------------------
@@ -107,7 +107,7 @@ trait_colors <- c("NLRP3_expression" = "#1B9E77",
 
 create_forest_subplot <- function(data, trait_name, trait_label,
                                   show_yaxis = FALSE, italic_first = FALSE) {
-    trait_data  <- data |> filter(trait == trait_name)
+    trait_data  <- data %>% filter(trait == trait_name)
     trait_color <- trait_colors[[trait_name]]
 
     # Every effect is negative once oriented, so the axis runs from the most

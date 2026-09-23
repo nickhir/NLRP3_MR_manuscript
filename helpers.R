@@ -64,11 +64,24 @@ if (startsWith(tempdir(), "/tmp")) {
 
 ## ---- reading summary statistics ----------------------------------------------
 
+# SAIGE output has no allele columns, only MarkerID = chr:pos_Allele1/Allele2,
+# with BETA and AF_Allele2 referring to Allele2. A registry entry names that
+# column as marker_col, and both readers below split it into the usual oa/ea.
+alleles_from_marker <- function(df) {
+    if (!"marker" %in% names(df)) {
+        return(df)
+    }
+    df$oa <- sub("^.*_([^/]+)/.*$", "\\1", df$marker)
+    df$ea <- sub("^.*/", "", df$marker)
+    df$marker <- NULL
+    df
+}
+
 # Read one chromosome window out of a summary-statistics file, given its
 # registry entry from config.R. Column names are standardised on the way in -
 # chrom, pos, ea, oa, beta, se, eaf, p, plus rsid, n, gene, ci_lower and
 # ci_upper wherever the entry names them - so every caller downstream works in
-# plain dplyr instead of df[[cfg$chr_col]]. Accepts 2L, "2" or "chr2" for `chr`.
+# plain dplyr instead of df[[cfg$chr_col]]. Accepts 2, "2" or "chr2" for `chr`.
 read_region <- function(cfg, chr, start, end) {
     chr <- sub("^chr", "", as.character(chr))
 
@@ -79,6 +92,7 @@ read_region <- function(cfg, chr, start, end) {
         pos = cfg$pos_col,
         ea = cfg$ea_col,
         oa = cfg$oa_col,
+        marker = cfg$marker_col,
         beta = cfg$effect_col,
         se = cfg$se_col,
         eaf = cfg$eaf_col,
@@ -114,10 +128,10 @@ read_region <- function(cfg, chr, start, end) {
         showProgress = FALSE
     )
 
-    df <- raw |>
+    df <- raw %>%
         # all_of(), not any_of()/select(): a mistyped *_col must be an error
         # here. fread(select=) only warns about a column it cannot find.
-        dplyr::select(dplyr::all_of(cols)) |>
+        dplyr::select(dplyr::all_of(cols)) %>%
         dplyr::filter(
             chrom %in% c(chr, paste0("chr", chr)),
             pos >= start,
@@ -126,6 +140,7 @@ read_region <- function(cfg, chr, start, end) {
     if (!is.null(cfg$gene)) {
         df <- dplyr::filter(df, gene == cfg$gene)
     }
+    df <- alleles_from_marker(df)
 
     # Back to integer once the window comparison is done. A double position is
     # pasted into the variant ID by create_SNPid_vectorized(), and R renders a
@@ -159,6 +174,7 @@ read_genome <- function(cfg) {
         pos = cfg$pos_col,
         ea = cfg$ea_col,
         oa = cfg$oa_col,
+        marker = cfg$marker_col,
         beta = cfg$effect_col,
         se = cfg$se_col,
         eaf = cfg$eaf_col,
@@ -186,11 +202,12 @@ read_genome <- function(cfg) {
         showProgress = FALSE
     )
 
-    df <- raw |>
-        dplyr::select(dplyr::all_of(cols)) |>
+    df <- raw %>%
+        dplyr::select(dplyr::all_of(cols)) %>%
         # Stripped once here rather than at each of the three call sites; the
         # shell filters these replaced did the same before comparing or binning.
-        dplyr::mutate(chrom = sub("^chr", "", chrom), pos = as.integer(pos))
+        dplyr::mutate(chrom = sub("^chr", "", chrom), pos = as.integer(pos)) %>%
+        alleles_from_marker()
 
     rm(raw)
     df
@@ -321,7 +338,7 @@ harmonise_region <- function(df, cfg, chr, pos_map = NULL) {
         beta = ifelse(std$ea == A1, std$beta, -std$beta),
         se = std$se,
         p = std$p
-    ) |>
+    ) %>%
         dplyr::distinct(SNPid, .keep_all = TRUE)
 }
 
@@ -369,7 +386,7 @@ load_instruments <- function(path = instrument_file, negate = TRUE) {
         names(fr)[1] <- "CHROM"
 
         SNP <- from_panel_id(fr$ID)
-        A1 <- vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3L)
+        A1 <- vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3)
 
         tibble::tibble(
             SNP = SNP,
@@ -390,8 +407,8 @@ load_instruments <- function(path = instrument_file, negate = TRUE) {
         plink2 = plink2_bin
     ) {
         fr <- panel_allele_freq(snp_ids, panel = panel, plink2 = plink2)
-        cmp <- tibble::tibble(SNP = snp_ids, freq_data = as.numeric(eaf)) |>
-            dplyr::inner_join(fr, by = "SNP") |>
+        cmp <- tibble::tibble(SNP = snp_ids, freq_data = as.numeric(eaf)) %>%
+            dplyr::inner_join(fr, by = "SNP") %>%
             dplyr::mutate(delta = abs(freq_panel - freq_data))
 
         if (nrow(cmp) == 0) {
@@ -424,7 +441,7 @@ load_instruments <- function(path = instrument_file, negate = TRUE) {
         invisible(cmp)
     }
 
-    ex <- data.table::fread(path, data.table = FALSE) |>
+    ex <- data.table::fread(path, data.table = FALSE) %>%
         dplyr::transmute(
             SNP = SNP,
             chr = as.integer(chr),
@@ -434,22 +451,22 @@ load_instruments <- function(path = instrument_file, negate = TRUE) {
             eaf_exposure = as.numeric(eaf),
             beta_exposure = as.numeric(beta_exposure),
             se_exposure = as.numeric(se_exposure)
-        ) |>
+        ) %>%
         dplyr::arrange(pos_hg38)
 
     # GRCh37 positions for the same eight variants, for the outcome files still
     # released on that build. Produced with UCSC liftOver and cross-checked
     # against the Parkinson's, T2D and COVID-19 files, all natively GRCh37.
     hg19 <- tibble::tribble(
-        ~SNP              , ~pos_hg19  ,
-        "1_247406019_C_T" , 247569321L ,
-        "1_247432548_C_T" , 247595850L ,
-        "1_247433558_A_C" , 247596860L ,
-        "1_247438293_C_T" , 247601595L ,
-        "1_247442302_A_G" , 247605604L ,
-        "1_247452478_A_G" , 247615780L ,
-        "1_247459572_C_T" , 247622874L ,
-        "1_247460342_C_G" , 247623644L
+        ~SNP              , ~pos_hg19 ,
+        "1_247406019_C_T" , 247569321 ,
+        "1_247432548_C_T" , 247595850 ,
+        "1_247433558_A_C" , 247596860 ,
+        "1_247438293_C_T" , 247601595 ,
+        "1_247442302_A_G" , 247605604 ,
+        "1_247452478_A_G" , 247615780 ,
+        "1_247459572_C_T" , 247622874 ,
+        "1_247460342_C_G" , 247623644
     )
     ex <- dplyr::left_join(ex, hg19, by = "SNP")
 
@@ -562,10 +579,10 @@ interval_ld_matrix <- function(
 # whichever ones the outcome actually carries.
 run_mr <- function(dat, ld_full) {
     label <- dat$outcome[1]
-    usable <- dat |>
+    usable <- dat %>%
         dplyr::filter(!is.na(beta_outcome), !is.na(se_outcome), se_outcome > 0)
 
-    if (nrow(usable) < 3L) {
+    if (nrow(usable) < 3) {
         return(NULL)
     }
 
@@ -600,7 +617,7 @@ run_mr <- function(dat, ld_full) {
             ci_upper = med$CIUpper,
             p = med$Pvalue
         )
-    ) |>
+    ) %>%
         dplyr::mutate(outcome = label, nsnp = nrow(usable), .before = 1)
 }
 
@@ -693,14 +710,14 @@ to_common <- function(df, cfg) {
             ifelse(ea == A1, f, 1 - f)
         },
         n = if (is.null(cfg$n_col)) NA_real_ else as.numeric(df[["n"]])
-    ) |>
+    ) %>%
         dplyr::filter(
             !is.na(beta),
             !is.na(se),
             se > 0,
             A1 %in% c("A", "C", "G", "T"),
             A2 %in% c("A", "C", "G", "T")
-        ) |>
+        ) %>%
         dplyr::distinct(SNPid, .keep_all = TRUE)
 }
 
@@ -727,7 +744,7 @@ lookup_at <- function(cfg, want) {
         stop(sprintf("[%s] no rows matched", cfg$label))
     }
 
-    to_common(df, cfg) |> dplyr::filter(SNPid %in% want$SNPid)
+    to_common(df, cfg) %>% dplyr::filter(SNPid %in% want$SNPid)
 }
 
 ## -----------------------------------------------------------------------------
@@ -931,7 +948,14 @@ create_SNPid_vectorized <- function(
 }
 
 
-ld_clump_local <- function(variants, bfile, r2, kb) {
+ld_clump_local <- function(
+    variants,
+    bfile,
+    r2,
+    kb,
+    threads = NULL,
+    memory = NULL
+) {
     # Make textfile
     shell <- ifelse(Sys.info()["sysname"] == "Windows", "cmd", "sh")
     fn <- scratch_file()
@@ -967,6 +991,12 @@ ld_clump_local <- function(variants, bfile, r2, kb) {
         " --out ",
         shQuote(fn, type = shell)
     )
+    if (!is.null(threads)) {
+        fun2 <- paste(fun2, "--threads", threads)
+    }
+    if (!is.null(memory)) {
+        fun2 <- paste(fun2, "--memory", memory)
+    }
     null_device <- ifelse(
         Sys.info()["sysname"] == "Windows",
         "NUL",
@@ -981,6 +1011,50 @@ ld_clump_local <- function(variants, bfile, r2, kb) {
 
     res <- data.table::fread(clumps_file, header = TRUE)
     return(res)
+}
+
+# Re-clump the pooled, available instruments separately for each existing
+# waterfall model. Keeping the full design lets a smaller model retain SNPs
+# displaced by another mediator only in the larger model.
+clump_mediator_sets <- function(instruments, snp_ids, panel = ld_panel) {
+    order <- c("SBP", "ApoB", "T2D")
+    sets <- lapply(seq_along(order), function(i) {
+        meds <- order[seq_len(i)]
+        ins <- instruments[
+            instruments$mediator %in% meds & instruments$SNPid %in% snp_ids,
+        ]
+        priority <- tapply(ins$nlog10, ins$SNPid, max)
+        # As in 07a's within-trait clumps, ranks preserve tiny-P ordering
+        # without numerical underflow; strongest association across lists wins.
+        p <- rank(-priority, ties.method = "first") /
+            (length(priority) + 1) *
+            MED_CLUMP_P
+        clumped <- ld_clump_local(
+            variants = data.frame(SNP = to_panel_id(names(priority)), p = p),
+            bfile = panel,
+            r2 = MED_CLUMP_R2,
+            kb = MED_CLUMP_KB,
+            threads = 1,
+            memory = 2048
+        )
+        keep <- from_panel_id(clumped$ID)
+        stopifnot(length(keep) > length(meds), all(keep %in% snp_ids))
+        message(sprintf(
+            "%s pooled clump: %d -> %d instruments",
+            paste(meds, collapse = "+"),
+            length(priority),
+            length(keep)
+        ))
+        keep
+    })
+    names(sets) <- vapply(
+        seq_along(order),
+        function(i) {
+            paste(order[seq_len(i)], collapse = "+")
+        },
+        character(1)
+    )
+    sets
 }
 
 ## =============================================================================

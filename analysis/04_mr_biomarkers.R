@@ -31,8 +31,8 @@ PROXIES <- c("CRP", "GlycA", "Neutrophil_count")
 
 proxy_mr <- lapply(PROXIES, function(k) {
     cfg <- READOUTS[[k]]
-    outcome <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
-        harmonise_region(cfg, CHR) |>
+    outcome <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) %>%
+        harmonise_region(cfg, CHR) %>%
         filter(SNPid %in% instruments)
 
     found <- sum(instruments %in% outcome$SNPid)
@@ -45,26 +45,26 @@ proxy_mr <- lapply(PROXIES, function(k) {
     # harmonise_region() puts beta on the ASCII-first allele, and
     # load_instruments() asserts the exposure is on the same one, so the two
     # are aligned by construction rather than by a merge on alleles.
-    dat <- exposure |>
-        select(SNP, beta_exposure, se_exposure) |>
-        left_join(outcome |> select(SNP = SNPid,
+    dat <- exposure %>%
+        select(SNP, beta_exposure, se_exposure) %>%
+        left_join(outcome %>% select(SNP = SNPid,
                                     beta_outcome = beta, se_outcome = se),
-                  by = "SNP") |>
+                  by = "SNP") %>%
         mutate(outcome = cfg$label)
 
-    run_mr(dat, ld_full) |>
+    run_mr(dat, ld_full) %>%
         mutate(block = "Systemic inflammation proxies", n_total = cfg$n)
-}) |> bind_rows()
+}) %>% bind_rows()
 
 
 ## ---- block 2: the effector cytokines, re-derived from UKB-PPP ----------------
 CYTOKINES <- c("IL1B", "IL18", "IL6")
 
 # IL6 is assayed on four Olink panels, IL1B and IL18 on one each: six assays.
-assays <- tibble(protein_id = readLines(ppp_manifest)) |>
-    filter(nzchar(protein_id)) |>
+assays <- tibble(protein_id = readLines(ppp_manifest)) %>%
+    filter(nzchar(protein_id)) %>%
     mutate(gene_name = sub("_.*$", "", protein_id),
-           path      = file.path(ppp_dir, paste0(protein_id, ".bgz"))) |>
+           path      = file.path(ppp_dir, paste0(protein_id, ".bgz"))) %>%
     filter(gene_name %in% CYTOKINES)
 
 PPP_COLS <- c("CHROM", "GENPOS", "ID", "ALLELE0", "ALLELE1", "A1FREQ",
@@ -87,7 +87,7 @@ read_assay <- function(path) {
 # ASCII-first allele, so the outcome is flipped onto A1 the same way step 09
 # does it.
 harmonise_assay <- function(df) {
-    std <- df |>
+    std <- df %>%
         transmute(join_pos   = as.integer(GENPOS),
                   outcome_ea = toupper(ALLELE1),
                   outcome_oa = toupper(ALLELE0),
@@ -96,15 +96,15 @@ harmonise_assay <- function(df) {
                   info       = as.numeric(INFO),
                   n_outcome  = as.integer(N))
 
-    exposure |>
+    exposure %>%
         left_join(std, by = c("pos_hg38" = "join_pos"),
-                  relationship = "one-to-many") |>
+                  relationship = "one-to-many") %>%
         mutate(forward = outcome_ea == A1 & outcome_oa == A2,
                reverse = outcome_ea == A2 & outcome_oa == A1,
                beta_outcome = case_when(forward ~ beta_raw,
                                         reverse ~ -beta_raw,
-                                        TRUE    ~ NA_real_)) |>
-        filter(!is.na(beta_outcome), !is.na(se_outcome), se_outcome > 0) |>
+                                        TRUE    ~ NA_real_)) %>%
+        filter(!is.na(beta_outcome), !is.na(se_outcome), se_outcome > 0) %>%
         distinct(SNP, .keep_all = TRUE)
 }
 
@@ -133,23 +133,23 @@ ppp_mr <- lapply(seq_len(nrow(assays)), function(i) {
            ivw_beta = ivw$Estimate, ivw_se = ivw$StdError, ivw_pval = ivw$Pvalue,
            median_beta = med$Estimate, median_se = med$StdError,
            median_pval = med$Pvalue)
-}) |> bind_rows()
+}) %>% bind_rows()
 
 # Step 09's rule for proteins on more than one panel: keep the most significant
 # IVW result per gene.
-proteome <- ppp_mr |>
-    group_by(gene_name) |>
-    slice_min(order_by = ivw_pval, n = 1, with_ties = FALSE) |>
+proteome <- ppp_mr %>%
+    group_by(gene_name) %>%
+    slice_min(order_by = ivw_pval, n = 1, with_ties = FALSE) %>%
     ungroup()
 
 cytokine_mr <- lapply(CYTOKINES, function(k) {
-    r <- proteome |> filter(gene_name == k)
+    r <- proteome %>% filter(gene_name == k)
     bind_rows(
         tibble(method = "IVW",
                estimate = r$ivw_beta, se = r$ivw_se, p = r$ivw_pval),
         tibble(method = "Weighted median",
                estimate = r$median_beta, se = r$median_se, p = r$median_pval)
-    ) |>
+    ) %>%
         mutate(outcome  = k,
                nsnp     = as.integer(r$n_snps),
                ci_lower = estimate - 1.96 * se,
@@ -157,21 +157,21 @@ cytokine_mr <- lapply(CYTOKINES, function(k) {
                block    = "NLRP3 inflammasome-associated cytokines",
                n_total  = as.integer(r$n_ppp),
                .before  = 1)
-}) |> bind_rows()
+}) %>% bind_rows()
 
 
 ## ---- assemble ----------------------------------------------------------------
 # run_mr() names the LD-corrected estimator "IVW (LD-corrected)"; block 2 calls
 # the same quantity plain "IVW".
-results <- bind_rows(proxy_mr, cytokine_mr) |>
+results <- bind_rows(proxy_mr, cytokine_mr) %>%
     mutate(
         method       = recode(method, "IVW (LD-corrected)" = "IVW"),
         ld_corrected = method == "IVW",
         n_cases      = NA_integer_,      # every outcome here is continuous
         n_controls   = NA_integer_
-    ) |>
+    ) %>%
     select(block, outcome, method, estimate, se, ci_lower, ci_upper, p,
-           nsnp, n_total, n_cases, n_controls, ld_corrected) |>
+           nsnp, n_total, n_cases, n_controls, ld_corrected) %>%
     arrange(match(block, c("Systemic inflammation proxies",
                            "NLRP3 inflammasome-associated cytokines")),
             match(outcome, c("CRP concentration", "GlycA concentration",
@@ -182,7 +182,7 @@ results <- bind_rows(proxy_mr, cytokine_mr) |>
 ## ---- sanity checks -----------------------------------------------------------
 # Lower NLRP3 activity must lower every one of these readouts. The three proxies
 # are negative by construction; the cytokines are not, and are the real test.
-ivw <- results |> filter(method == "IVW")
+ivw <- results %>% filter(method == "IVW")
 
 message("\nIVW, per one-unit decrease in the activity score:")
 for (i in seq_len(nrow(ivw))) {

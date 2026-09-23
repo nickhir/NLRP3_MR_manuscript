@@ -19,7 +19,7 @@ out_dir  <- step_dir("01_colocalisation")
 
 ## ---- 1. NLRP3 expression over the locus --------------------------------------
 cfg  <- READOUTS$NLRP3_expression
-eqtl <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
+eqtl <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) %>%
     harmonise_region(cfg, CHR)
 
 message(sprintf("NLRP3 expression (INTERVAL, GRCh38): %d variants", nrow(eqtl)))
@@ -27,7 +27,7 @@ message(sprintf("NLRP3 expression (INTERVAL, GRCh38): %d variants", nrow(eqtl)))
 
 ## ---- 2. identify the variant to condition on ----------------------------------
 # The top NLRP3 expression association in the locus.
-top_snp <- eqtl |> slice_min(p, n = 1, with_ties = FALSE)
+top_snp <- eqtl %>% slice_min(p, n = 1, with_ties = FALSE)
 in_gene <- top_snp$pos >= GENE_START & top_snp$pos <= GENE_END
 
 # If the top variant were inside the gene, conditioning on it would remove the
@@ -61,15 +61,15 @@ names(afreq)[names(afreq) == "#CHROM"] <- "CHROM"
 
 # A1 is the ASCII-first allele, stored as REF in this alpha-sorted panel, so
 # the A1 frequency is 1 - ALT_FREQS wherever A1 != ALT.
-panel_freq <- afreq |>
+panel_freq <- afreq %>%
     transmute(SNPid    = from_panel_id(ID),
               panel_a1 = sub("^chr[^:]+:[0-9]+:([^:]+):.*$", "\\1", ID),
-              A1_freq  = ifelse(panel_a1 != ALT, 1 - ALT_FREQS, ALT_FREQS)) |>
+              A1_freq  = ifelse(panel_a1 != ALT, 1 - ALT_FREQS, ALT_FREQS)) %>%
     select(SNPid, A1_freq)
 
-cojo_input <- eqtl |>
-    inner_join(panel_freq, by = "SNPid") |>
-    filter(!is.na(A1_freq), A1_freq > 0, A1_freq < 1) |>
+cojo_input <- eqtl %>%
+    inner_join(panel_freq, by = "SNPid") %>%
+    filter(!is.na(A1_freq), A1_freq > 0, A1_freq < 1) %>%
     transmute(SNP = to_panel_id(SNPid), A1, A2, freq = A1_freq,
               b = beta, se = se, p = p, N = READOUTS$NLRP3_expression$n)
 
@@ -86,16 +86,16 @@ system2(gcta_bin, c("--bfile", region_bfile, "--cojo-file", ma_path,
 
 cma_path <- paste0(cojo_out, ".cma.cojo")
 
-eqtl_cond <- fread(cma_path, data.table = FALSE) |>
+eqtl_cond <- fread(cma_path, data.table = FALSE) %>%
     transmute(SNPid = from_panel_id(SNP), chrom = as.integer(Chr),
-              pos = as.integer(bp), beta = bC, se = bC_se, p = pC) |>
+              pos = as.integer(bp), beta = bC, se = bC_se, p = pC) %>%
     filter(!is.na(beta), !is.na(se), se > 0, !is.na(p))
 
 
 ## ---- 4. the three biomarkers, unconditioned -------------------------------------
 biomarkers <- lapply(c("CRP", "GlycA", "Neutrophil_count"), function(k) {
     cfg <- READOUTS[[k]]
-    d <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) |>
+    d <- read_region(cfg, CHR, LOCUS_START, LOCUS_END) %>%
         harmonise_region(cfg, CHR)
     message(sprintf("%s (GRCh38, unconditioned): %d variants", cfg$label, nrow(d)))
     d
@@ -108,7 +108,7 @@ traits <- c(list(NLRP3_expression = eqtl_cond), biomarkers)
 
 common <- Reduce(intersect, lapply(traits, function(d) d$SNPid))
 
-aligned <- lapply(traits, function(d) d |> filter(SNPid %in% common) |> arrange(SNPid))
+aligned <- lapply(traits, function(d) d %>% filter(SNPid %in% common) %>% arrange(SNPid))
 
 betas <- do.call(cbind, lapply(aligned, function(d) d$beta))
 ses   <- do.call(cbind, lapply(aligned, function(d) d$se))

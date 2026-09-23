@@ -33,7 +33,7 @@ neutro_file <- READOUTS$Neutrophil_count$file
 
 ## ----parameters---------------------------------------------------------------
 IL1RN_ENSG <- "ENSG00000136689"
-CHR        <- 2L
+CHR        <- 2
 
 R2_THRESHOLD      <- 0.1        # the threshold the manuscript reports
 CLUMP_KB          <- 250
@@ -43,10 +43,10 @@ PROXY_R2          <- 0.9
 PROXY_WINDOW_KB   <- 50
 FREQ_TOL          <- 0.05       # panel vs GWAS A1 frequency
 
-N_INTERVAL <- 4732L
-N_CRP      <- 575531L
-N_NEUTRO   <- 519288L
-N_GLYCA    <- 434646L
+N_INTERVAL <- 4732
+N_CRP      <- 575531
+N_NEUTRO   <- 519288
+N_GLYCA    <- 434646
 
 ## ----region-------------------------------------------------------------------
 get_gene_coordinates_hg38 <- function(gene_symbol) {
@@ -179,7 +179,7 @@ panel_freq <- read.table(file.path(scratch, "raw_freq.afreq"), header = TRUE,
                          comment.char = "")
 names(panel_freq)[1] <- "CHROM"
 panel_freq$.A1 <- vapply(strsplit(panel_freq$ID, "_", fixed = TRUE),
-                         `[`, character(1), 3L)
+                         `[`, character(1), 3)
 panel_freq$freq_panel <- ifelse(panel_freq$.A1 != panel_freq$ALT,
                                 1 - panel_freq$ALT_FREQS, panel_freq$ALT_FREQS)
 
@@ -285,7 +285,7 @@ membership <- components(graph_from_adjacency_matrix(adj, mode = "undirected",
                                                      diag = FALSE))$membership
 
 comp_list <- split(names(membership), membership)
-comp_list <- comp_list[vapply(comp_list, length, 1L) > 1]
+comp_list <- comp_list[vapply(comp_list, length, 1) > 1]
 
 shared <- lapply(names(comp_list), function(id) {
     b <- comp_list[[id]]
@@ -308,7 +308,7 @@ shared$SNPs <- vapply(seq_len(nrow(shared)), function(i) {
 # One instrument per signal: prefer variants present in all four readouts (so
 # the PCA has no missing cells), then take the lowest CRP p-value.
 pick_best <- function(snps) {
-    av <- vapply(snps, availability, 1L)
+    av <- vapply(snps, availability, 1)
     best <- snps[av == max(av)]
     summary_stats$CRP %>% filter(SNP %in% best) %>%
         slice_min(p, n = 1, with_ties = FALSE)
@@ -318,7 +318,7 @@ instruments <- lapply(shared$SNPs,
     bind_rows() %>% pull(SNP)
 
 ## ----step5_proxies------------------------------------------------------------
-need_proxy <- instruments[vapply(instruments, availability, 1L) != 4]
+need_proxy <- instruments[vapply(instruments, availability, 1) != 4]
 proxy_log <- tibble(original = character(), replacement = character(),
                     r2 = numeric())
 if (length(need_proxy) > 0) {
@@ -328,7 +328,7 @@ if (length(need_proxy) > 0) {
     if (nrow(hl) > 0) {
         reps <- lapply(unique(hl$ID_A), function(s) {
             cand <- hl %>% filter(ID_A == s) %>% arrange(desc(UNPHASED_R2))
-            cand$av <- vapply(cand$ID_B, availability, 1L)
+            cand$av <- vapply(cand$ID_B, availability, 1)
             cand <- cand %>% filter(av == 4)
             if (nrow(cand) == 0) NULL else
                 tibble(original = s, replacement = cand$ID_B[1],
@@ -409,9 +409,9 @@ message(sprintf("  scaling constant k = %.4f%s", k,
 ## ----rsids--------------------------------------------------------------------
 variants <- tibble(SNP = rownames(beta_m)) %>%
     mutate(position_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE),
-                                             `[`, character(1), 2L)),
-           A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3L),
-           A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4L)) %>%
+                                             `[`, character(1), 2)),
+           A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3),
+           A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4)) %>%
     arrange(position_hg38)
 
 rsid_map <- fread(rsid_map_file, data.table = FALSE, showProgress = FALSE) %>%
@@ -489,9 +489,9 @@ print(round(ld_il1rn, 3))
 exposure <- variants %>%
     select(SNP, rsid) %>%
     left_join(score %>% rename(beta_exposure = beta, se_exposure = se), by = "SNP") %>%
-    mutate(pos = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2L)),
-           A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3L),
-           A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4L))
+    mutate(pos = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2)),
+           A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3),
+           A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4))
 
 # one registry outcome, restricted to the instruments
 read_outcome_cfg <- function(key) {

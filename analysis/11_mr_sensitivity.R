@@ -78,7 +78,7 @@ system2(plink2_bin, c("--pfile", panel_raw, "--freq",
 panel_freq <- read.table(file.path(scratch, "raw_freq.afreq"), header = TRUE,
                          comment.char = "")
 names(panel_freq)[1] <- "CHROM"
-panel_freq$.A1 <- vapply(strsplit(panel_freq$ID, "_", fixed = TRUE), `[`, character(1), 3L)
+panel_freq$.A1 <- vapply(strsplit(panel_freq$ID, "_", fixed = TRUE), `[`, character(1), 3)
 panel_freq$freq_panel <- ifelse(panel_freq$.A1 != panel_freq$ALT,
                                 1 - panel_freq$ALT_FREQS, panel_freq$ALT_FREQS)
 
@@ -139,7 +139,7 @@ select_instruments <- function(clump_r2) {
     membership <- components(graph_from_adjacency_matrix(adj, mode = "undirected",
                                                          diag = FALSE))$membership
     comp_list <- split(names(membership), membership)
-    comp_list <- comp_list[vapply(comp_list, length, 1L) > 1]
+    comp_list <- comp_list[vapply(comp_list, length, 1) > 1]
 
     shared <- lapply(names(comp_list), function(id) {
         b <- comp_list[[id]]
@@ -154,21 +154,21 @@ select_instruments <- function(clump_r2) {
     }, character(1))
 
     pick_best <- function(snps) {
-        av   <- vapply(snps, availability, 1L)
+        av   <- vapply(snps, availability, 1)
         best <- snps[av == max(av)]
         summary_stats$CRP %>% filter(SNP %in% best) %>% slice_min(p, n = 1, with_ties = FALSE)
     }
     instruments <- lapply(shared$SNPs, function(s) pick_best(unlist(str_split(s, ",")))) %>%
         bind_rows() %>% pull(SNP)
 
-    need_proxy <- instruments[vapply(instruments, availability, 1L) != 4]
+    need_proxy <- instruments[vapply(instruments, availability, 1) != 4]
     if (length(need_proxy) > 0) {
         hl <- get_high_ld_snps(need_proxy, reference = ld_reference,
                                r2 = PROXY_R2, kb = PROXY_WINDOW_KB)
         if (nrow(hl) > 0) {
             reps <- lapply(unique(hl$ID_A), function(s) {
                 cand <- hl %>% filter(ID_A == s)
-                cand$av <- vapply(cand$ID_B, availability, 1L)
+                cand$av <- vapply(cand$ID_B, availability, 1)
                 cand <- cand %>% filter(av == 4)
                 if (nrow(cand) == 0) return(NULL)
                 cand <- cand %>% filter(UNPHASED_R2 >= max(UNPHASED_R2) - PROXY_R2_TIE)
@@ -217,15 +217,15 @@ select_instruments <- function(clump_r2) {
     if (cor(sc$beta, sc$beta_eqtl) < 0) score$beta <- -score$beta
 
     score %>%
-        mutate(pos_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2L)),
-               A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3L),
-               A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4L),
+        mutate(pos_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2)),
+               A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3),
+               A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4),
                pc1_var_explained = summary(pca)$importance[2, 1],
                r2_threshold = clump_r2) %>%
         arrange(pos_hg38)
 }
 
-## ---- the CAD outcome: Aragam + MVP + FinnGen ------------------------------------
+## ---- the CAD outcome: Aragam + MVP + FinnGen + All of Us ------------------------
 cad_raw <- list(
     "Aragam et al." = read_region(CAD_STUDIES$aragam, CHR, CAD_START, CAD_END) %>%
         transmute(join_pos = as.integer(pos),
@@ -241,22 +241,18 @@ cad_raw <- list(
         transmute(join_pos = as.integer(pos),
                   ea = toupper(ea), oa = toupper(oa),
                   b = as.numeric(beta), se = as.numeric(se)),
-    # Long format, already subset to the published eight. MarkerID is
-    # chr:pos_OTHER/EFFECT, so the allele after the slash is what BETA refers to.
-    "All of Us" = read_tsv(file.path(dataset_dir, "coronary_atherosclerosis_allofus_CV_404_2.tsv"),
-                           show_col_types = FALSE) %>%
-        mutate(across(where(is.character), ~ sub("\r$", "", .x))) %>%
-        filter(phenoname == "CV_404.2") %>%
-        transmute(join_pos = as.integer(POS),
-                  oa = toupper(sub("^.*_([ACGT]+)/[ACGT]+$", "\\1", MarkerID)),
-                  ea = toupper(sub("^.*_[ACGT]+/([ACGT]+)$", "\\1", MarkerID)),
-                  b  = as.numeric(BETA), se = as.numeric(SE))
+    # All of Us is an extract, not genome-wide; read_region() takes its alleles
+    # from SAIGE's MarkerID (see config.R).
+    "All of Us" = read_region(CAD_STUDIES$allofus, CHR, CAD_START, CAD_END) %>%
+        transmute(join_pos = as.integer(pos),
+                  ea = toupper(ea), oa = toupper(oa),
+                  b = as.numeric(beta), se = as.numeric(se))
 )
 for (n in names(cad_raw))
     message(sprintf("%-14s over chr%d:%d-%d: %d variants",
                     n, CHR, CAD_START, CAD_END, nrow(cad_raw[[n]])))
 
-# Harmonise one exposure set against the three studies and meta-analyse per SNP.
+# Harmonise one exposure set against the four studies and meta-analyse per SNP.
 # The exposure is NEGATED here: every estimate reads per one-unit LOWER
 # cis-NLRP3 activity, matching Figure 3A.
 cad_meta_for <- function(exposure) {
@@ -271,7 +267,7 @@ cad_meta_for <- function(exposure) {
             transmute(study = label, SNP, bx, bxse, by, byse = se)
     })
     names(per_study) <- names(cad_raw)
-    coverage <- vapply(per_study, nrow, 1L)
+    coverage <- vapply(per_study, nrow, 1)
 
     meta <- bind_rows(per_study) %>%
         group_by(SNP) %>%
@@ -358,7 +354,7 @@ one  <- cm01$meta %>% filter(SNP == COLOC_SNP)
 wald_beta <- one$by / one$bx
 wald_se   <- abs(one$byse / one$bx)
 single <- tibble(
-    label = "rs12239046 only", method = "Wald ratio", n_snps = 1L,
+    label = "rs12239046 only", method = "Wald ratio", n_snps = 1,
     estimate = wald_beta, se = wald_se,
     ci_lower = wald_beta - qnorm(0.975) * wald_se,
     ci_upper = wald_beta + qnorm(0.975) * wald_se,
@@ -406,7 +402,7 @@ if (any(is.na(ann$rsid))) {
             transmute(pos_hg38 = as.integer(pos), rsid2 = as.character(rsid))
     )) %>% filter(!is.na(rsid2), grepl("^rs", rsid2)) %>% distinct(pos_hg38, .keep_all = TRUE)
     ann <- ann %>%
-        mutate(pos_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2L))) %>%
+        mutate(pos_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2))) %>%
         left_join(fallback, by = "pos_hg38") %>%
         mutate(rsid = coalesce(rsid, rsid2)) %>% select(SNP, rsid)
 }

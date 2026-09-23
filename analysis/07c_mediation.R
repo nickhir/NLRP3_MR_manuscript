@@ -14,7 +14,7 @@ source(here::here("helpers.R"))
 
 out_dir <- step_dir("07c_mediation")
 set.seed(20260907)
-N_DRAWS <- 100000L
+N_DRAWS <- 100000
 
 med_dir <- file.path(results_dir, "07a_mediator_instruments")
 ovl_dir <- file.path(results_dir, "07b_sample_overlap")
@@ -45,8 +45,19 @@ correlated_ivw <- function(bx, by, se_y, R) {
     Omega <- S %*% R %*% S
     Oi    <- solve(Omega)
     info  <- as.numeric(t(bx) %*% Oi %*% bx)
-    list(est  = as.numeric(t(bx) %*% Oi %*% by) / info,
-         var  = 1 / info,
+    est   <- as.numeric(t(bx) %*% Oi %*% by) / info
+
+    # Multiplicative random effects, as in mr_ivw(model = "random"), which every
+    # other MR step here uses: scale the variance by the over-dispersion of the
+    # instruments, floored at 1 so it never tightens a nominal standard error.
+    # Only the CAD path is heterogeneous enough for this to bite; each mediator
+    # path sits below the floor and is unchanged. Without it, panel E of Figure 3
+    # would print a narrower CAD interval than panel A for the same estimate.
+    resid  <- by - est * bx
+    sigma2 <- as.numeric(t(resid) %*% Oi %*% resid) / (length(bx) - 1)
+
+    list(est  = est,
+         var  = max(sigma2, 1) / info,
          info = info,
          Sinv = solve(S))
 }
@@ -119,32 +130,32 @@ info      <- sapply(alpha_fits, `[[`, "info")
 
 ## ---- 3. mediators -> CAD, mutually adjusted ---------------------------------------------
 design <- fread(file.path(med_dir, "mvmr_design.tsv"), data.table = FALSE)
+instrument_sets <- readRDS(file.path(med_dir, "mvmr_instrument_sets.rds"))
+keep <- instrument_sets[[paste(MEDS, collapse = "+")]]
+stopifnot(length(keep) > length(MEDS), all(keep %in% design$SNPid))
+design <- design[design$SNPid %in% keep, , drop = FALSE]
 BX  <- as.matrix(design[, paste0("beta_sd_", MEDS)])
 SEX <- as.matrix(design[, paste0("se_sd_",   MEDS)])
 by  <- design$beta_cad; byse <- design$se_cad
 
 
-# IVW-style MVMR: outcome betas on exposure betas, no intercept, weighted by the
-# inverse outcome variance. Fitting with lm gives the full vcov directly.
+# Original IVW-style MVMR, now on the pooled-clumped instruments: no intercept,
+# inverse outcome-variance weights, and multiplicative random effects floored
+# at one. Retain the full covariance for product-of-coefficients mediation.
 mvmr_df <- as.data.frame(BX); names(mvmr_df) <- MEDS; mvmr_df$by <- by
 mvmr_fit <- lm(reformulate(MEDS, response = "by", intercept = FALSE),
                data = mvmr_df, weights = 1 / byse^2)
-
 beta <- coef(mvmr_fit)[MEDS]
-
-# Multiplicative random effects, the MendelianRandomization default: the
-# residual scale is kept when there is over-dispersion (sigma > 1), floored at
-# 1 so standard errors are never pulled below their nominal value.
-sig      <- summary(mvmr_fit)$sigma
+sig <- summary(mvmr_fit)$sigma
 Sigma_bb <- vcov(mvmr_fit)[MEDS, MEDS] * (max(sig, 1) / sig)^2
 
 # Conditional F, so weak-instrument bias in this step is visible rather than
-# assumed away. Needs the per-SNP covariance between exposure estimates, which
-# is where rho enters a second time (Sanderson et al. 2021).
+# assumed away. With instruments clumped across exposures, use the original
+# MVMR diagnostic and per-SNP exposure covariance from 07b's rho.
 rho <- readRDS(file.path(ovl_dir, "rho.rds"))[MEDS, MEDS]
 fmt <- MVMR::format_mvmr(BXGs = BX, BYG = by, seBXGs = SEX, seBYG = byse,
                          RSID = design$SNPid)
-cv  <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
+cv <- MVMR::phenocov_mvmr(pcor = rho, seBXGs = SEX)
 cond_F <- as.numeric(MVMR::strength_mvmr(r_input = fmt, gencov = cv))
 
 Q_stat <- sum(residuals(mvmr_fit)^2 / byse^2)
@@ -281,6 +292,8 @@ saveRDS(list(tau = tau, var_tau = var_tau, alpha = alpha, var_alpha = var_alpha,
              ie = ie, var_ie = J$var, direct = direct, se_direct = se_dir,
              pm = ie / tau, pm_ci = pm_ci, pm_draws = draw_pm,
              cond_F = cond_F, Q = Q_stat, n_mvmr = nrow(design),
+             mvmr_method = "IVW after pooled LD clumping, multiplicative random effects",
+             mvmr_snps = design$SNPid,
              se_bounds = bound, direct_difference_method = direct2,
              exposure_direction = EXPOSURE_DIRECTION),
         file.path(out_dir, "mediation.rds"))

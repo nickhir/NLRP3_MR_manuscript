@@ -289,7 +289,8 @@ mr_dedup <- mr_all %>%
     arrange(ivw_pval)
 
 # 1,821 effective tests, from the eigenvalue decomposition of the covariate-
-# adjusted UKB proteome correlation matrix.
+# adjusted UKB proteome correlation matrix. Hardcoded because recomputing it
+# needs individual-level UK Biobank data; see 09b_effective_number_of_tests.R.
 N_EFFECTIVE_TESTS <- 1821
 
 mr_dedup <- mr_dedup %>%

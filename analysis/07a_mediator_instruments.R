@@ -108,8 +108,8 @@ med_at_union <- med_at_union %>%
 
 
 ## ---- CAD at those variants ----------------------------------------------------------
-# Studies absent from disk are skipped and reported, so All of Us joins with no
-# code change once its genome-wide data arrives.
+# Studies absent from disk are skipped and reported. All of Us is an extract
+# rather than genome-wide, so a variant it lacks is meta-analysed without it.
 available <- Filter(function(k) file.exists(CAD_STUDIES[[k]]$file), names(CAD_STUDIES))
 skipped   <- setdiff(names(CAD_STUDIES), available)
 
@@ -152,6 +152,12 @@ design <- med_at_union %>%
 # one GWAS simply does not carry; a large drop would mean a harmonisation
 # problem rather than genuine absence.
 design <- design %>% drop_na(starts_with("beta_sd_"), starts_with("se_sd_"))
+
+# Remove LD across the trait-specific instrument lists before each MVMR fit.
+# Do this after constructing/scaling the full design, so scaling and variant
+# availability are unchanged. Save separate sets for the waterfall models.
+mvmr_instrument_sets <- clump_mediator_sets(instruments, design$SNPid)
+saveRDS(mvmr_instrument_sets, file.path(out_dir, "mvmr_instrument_sets.rds"))
 
 fwrite(instruments,  file.path(out_dir, "mediator_instruments.tsv"), sep = "\t")
 fwrite(med_at_union, file.path(out_dir, "mediators_at_union.tsv"), sep = "\t")

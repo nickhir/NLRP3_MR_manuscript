@@ -93,7 +93,7 @@ joint_tbl <- lapply(strength, function(s) data.frame(
     trait = s$label, n_snps = K, n_samples = s$n,
     chi2 = s$chi2, F_joint = s$F_joint, F_mean = s$F_mean, F_min = s$F_min,
     R2_joint = s$R2_joint, R2_rho = s$R2_rho, R2_adj = s$R2_adj
-)) |> bind_rows()
+)) %>% bind_rows()
 
 print(joint_tbl, row.names = FALSE, digits = 4)
 
@@ -102,7 +102,7 @@ per_snp_tbl <- lapply(inputs, function(x) {
     data.frame(SNP = instruments, trait = x$label,
                beta = x$beta, se = x$se, z = s$z,
                F = s$F_per_snp, R2 = s$R2_per_snp)
-}) |> bind_rows()
+}) %>% bind_rows()
 
 
 ## ---- effective sample size check --------------------------------------------------------
@@ -120,7 +120,7 @@ eff_n <- lapply(names(READOUTS), function(k) {
     ne <- effective_n(aligned[[paste0("se_", k)]], aligned$eaf_exposure)
     data.frame(trait = k, n_stated = READOUTS[[k]]$n,
                n_effective = ne, ratio = ne / READOUTS[[k]]$n)
-}) |> bind_rows()
+}) %>% bind_rows()
 
 print(eff_n, row.names = FALSE, digits = 4)
 
