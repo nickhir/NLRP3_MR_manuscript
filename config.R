@@ -328,8 +328,8 @@ trait_entry <- function(template, label, group, n_label, file, ...) {
 CARDIOMETABOLIC <- list(
     Triglycerides = trait_entry(GWAS_CATALOG, "Triglycerides", "Lipids", "1,320,016",
                           "triglycerides_GCST90239664.h.tsv.gz"),
-    Lpa = trait_entry(GWAS_CATALOG, "Lp(a)", "Lipids", "343,821",
-                "lipoprotein_a_GCST90474389.NLRP3region.tsv.gz"),
+    Lpa = trait_entry(GWAS_CATALOG, "Lp(a)", "Lipids", "394,642",
+                "lipoprotein_a_GCST90468081.h.tsv.gz"),
     ApoB = trait_entry(GWAS_CATALOG, "ApoB", "Lipids", "434,646",
                  "apolipoprotein_b_GCST90497142.h.tsv.gz"),
     non_HDL_C = trait_entry(GWAS_CATALOG, "Non-HDL-C", "Lipids", "1,320,016",
