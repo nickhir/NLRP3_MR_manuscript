@@ -43,8 +43,9 @@ def fmt_p(p):
 FIG_W_MM, FIG_H_MM = 88.0, 102.0
 fig = plt.figure(figsize=(FIG_W_MM / 25.4, FIG_H_MM / 25.4))
 
-X_LABEL, X_EST, X_P = 0.015, 0.523, 0.832
-FOREST_L, FOREST_W = 0.303, 0.200
+# the P column sits 3.5 mm clear of the widest estimate, IL-1β's three-decimal one
+X_LABEL, X_EST, X_P = 0.015, 0.510, 0.874
+FOREST_L, FOREST_W = 0.303, 0.187
 X_INDENT = 0.014        # outcome names sit inside their group heading
 
 ROW_SPACING = 0.104     # figure fraction between outcome rows
@@ -88,12 +89,15 @@ for kind, key, ycentre in LAYOUT:
                  bbox=dict(facecolor="white", edgecolor="none", pad=0.8))
         continue
     r = ROWS[key]
+    # three decimals for IL-1β only: its IVW upper bound (-0.004) prints as -0.00 at two
+    dp = 3 if key == "IL1B" else 2
     fig.text(X_LABEL + X_INDENT, ycentre + 0.018, DISPLAY[key], fontsize=FS_BODY, va="center")
     fig.text(X_LABEL + X_INDENT, ycentre - 0.020, r["n"], fontsize=FS_SMALL,
              va="center", color=GREY)
     for slot, off in (("ivw", DY), ("wm", -DY)):
         e, lo, hi, p = r[slot]
-        fig.text(X_EST, ycentre + off, f"{e:.2f} ({lo:.2f}, {hi:.2f})", fontsize=FS_BODY, va="center")
+        fig.text(X_EST, ycentre + off, f"{e:.{dp}f} ({lo:.{dp}f}, {hi:.{dp}f})",
+                 fontsize=FS_BODY, va="center")
         fig.text(X_P, ycentre + off, fmt_p(p), fontsize=FS_BODY, va="center")
 
 # --- the single forest axis --------------------------------------------------
@@ -121,7 +125,7 @@ ax.set_xticks(ticks)
 ax.set_xticklabels(["%g" % t for t in ticks], fontsize=FS_TICK)
 ax.tick_params(axis="x", length=2.8, width=0.6, pad=0.6)
 ax.set_yticks([])
-minor_ticks(ax, 0.1, length=1.7, width=0.55)
+minor_ticks(ax, 0.25, length=1.7, width=0.55)
 for s in ("top", "left", "right"):
     ax.spines[s].set_visible(False)
 ax.spines["bottom"].set_linewidth(0.5)
