@@ -401,10 +401,9 @@ add("ST13",
 
 ## ---- ST14  CAD sensitivity analyses ----------------------------------------------------
 sweep <- read_result("11_mr_sensitivity/r2_sweep.tsv")
-single_variant <- read_result("11_mr_sensitivity/single_variant.tsv")
 
 # One block per analysis, all on the same columns. The Egger intercept belongs
-# to the IVW rows; the single-variant Wald ratio has none.
+# to the IVW rows.
 sensitivity_block <- function(analysis, d) data.frame(
     Analysis = analysis, Method = method_label(d$method),
     `# of Instruments` = d$n_snps,
@@ -415,13 +414,12 @@ sensitivity_block <- function(analysis, d) data.frame(
     check.names = FALSE, stringsAsFactors = FALSE)
 
 add("ST14",
-    "Sensitivity analyses for the coronary artery disease association: LD thresholds, leave-one-out and single variant.",
+    "Sensitivity analyses for the coronary artery disease association: LD thresholds and leave-one-out.",
     rbind(
         sensitivity_block(sprintf("LD clumping r2 < %.1f", sweep$r2_threshold), sweep),
         sensitivity_block(ifelse(leave_one_out$dropped == "none", "All instruments",
                                  paste("Leave-one-out: excluding", leave_one_out$dropped)),
-                          leave_one_out),
-        sensitivity_block("Shared colocalising variant only (rs12239046)", single_variant)),
+                          leave_one_out)),
     c(`# of Instruments` = INT_FMT, `P value` = P_FMT, `Egger intercept P` = P_FMT))
 
 

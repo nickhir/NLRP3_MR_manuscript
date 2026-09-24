@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # Sup Fig - leave-one-out forest.
 #
-# The NLRP3 -> CAD estimate with each instrument dropped in turn, and on the
-# single colocalising variant. Reads results/11_mr_sensitivity/ and the rsIDs
-# of results/02_instrument_table/, writes
-# figures_out/SupFig_leave_one_out.pdf.
+# The NLRP3 -> CAD estimate with each instrument dropped in turn. Reads
+# results/11_mr_sensitivity/ and the rsIDs of results/02_instrument_table/,
+# writes figures_out/SupFig_leave_one_out.pdf.
 
 import csv
 import sys
@@ -35,15 +34,10 @@ for r in load(IN_DIR / "leave_one_out.tsv"):
         exp(float(r["ci_upper"])), float(r["p"]))
 dropped = sorted((k for k in rows if k != "none"), key=lambda s: int(s.split("_")[1]))
 
-sv = load(IN_DIR / "single_variant.tsv")[0]
-rows["single"] = {"wald": (exp(float(sv["estimate"])), exp(float(sv["ci_lower"])),
-                           exp(float(sv["ci_upper"])), float(sv["p"]))}
-
 # ("data", key) draws a result row; ("head", text) a group header that takes a
 # slot of the forest axis, so text and markers stay aligned.
 layout = ([("data", "none"), ("head", "Leave-one-out")]
-          + [("data", k) for k in dropped]
-          + [("head", "Shared colocalising variant only"), ("data", "single")])
+          + [("data", k) for k in dropped])
 
 
 def fmt_p(p):
@@ -89,13 +83,6 @@ for i, (kind, key) in enumerate(layout):
         fig.text(X_LABEL, yc, key, fontsize=FS_GROUP, fontweight="bold", va="center", color=GREY)
         continue
     r = rows[key]
-    if key == "single":
-        # one estimate, so it sits on the row centre
-        fig.text(X_INDENT, yc, "only rs12239046", fontsize=FS_BODY, va="center")
-        e, lo, hi, pv = r["wald"]
-        fig.text(X_EST, yc, f"{e:.2f} ({lo:.2f}, {hi:.2f})", fontsize=FS_BODY, va="center")
-        fig.text(X_P, yc, fmt_p(pv), fontsize=FS_BODY, va="center")
-        continue
     is_full = key == "none"
     # "normal" would resolve to OpenSans-Regular; the body weight is semibold
     fig.text(X_LABEL if is_full else X_INDENT, yc,
@@ -116,24 +103,13 @@ for i, (kind, _key) in enumerate(layout):
 ax = fig.add_axes([FOREST_L, (Y_FIRST - (N - 1) * ROW_SPACING) - ROW_SPACING / 2,
                    FOREST_W, N * ROW_SPACING])
 ax.set_xscale("log")
-ax.set_xlim(0.87, 1.70)            # keeps the Wald ratio's interval on the axis
+ax.set_xlim(0.90, 1.70)
 ax.set_ylim(-0.5, N - 0.5)
 ax.invert_yaxis()
 ax.axvline(1.0, color="black", linestyle="--", linewidth=0.5, dashes=(3, 2), zorder=1)
 
-# break the null line across the gap that holds the second heading
-sv_head = [i for i, (kind, _) in enumerate(layout) if kind == "head"][-1]
-ax.axhspan(sv_head - 1 + DY_DATA + 0.22, sv_head + 1 - 0.20,
-           facecolor="white", edgecolor="none", zorder=1.5)
-
 for slot, (kind, key) in enumerate(layout):
     if kind != "data":
-        continue
-    if key == "single":
-        e, lo, hi, _ = rows[key]["wald"]
-        ax.plot([lo, hi], [slot] * 2, color=GREY, linewidth=0.8, solid_capstyle="butt", zorder=2)
-        ax.plot([e], [slot], marker="D", markersize=2.6, markerfacecolor="white",
-                markeredgecolor=GREY, markeredgewidth=0.7, zorder=3)
         continue
     for k, off, col in (("ivw", -DY_DATA, IVW_C), ("wm", DY_DATA, WM_C)):
         e, lo, hi, _ = rows[key][k]
@@ -154,7 +130,7 @@ ax.spines["bottom"].set_linewidth(0.5)
 ax.set_xlabel("Odds ratio for coronary artery disease\nper one unit lower NLRP3 activity score",
               fontsize=FS_XLAB, fontweight="bold", labelpad=1.8, linespacing=1.2)
 
-centred_legend(fig, [(IVW_C, "IVW"), (WM_C, "Weighted Median"), (GREY, "Wald ratio")],
+centred_legend(fig, [(IVW_C, "IVW"), (WM_C, "Weighted Median")],
                fy(FIG_H_MM - LEGEND_MM), 0.5, gap=0.045,
                half=0.020, pad=0.010, lw=0.8, ms=2.6, mew=0.7, fontsize=FS_SMALL)
 

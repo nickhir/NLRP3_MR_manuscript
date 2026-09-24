@@ -1,15 +1,14 @@
 ## 11 - Sensitivity of the cis-NLRP3 -> CAD estimate
 ##
 ## Against the CAD meta-analysis of step 05: instruments re-selected at LD
-## clumping thresholds r2 < 0.1 to 0.6, the single colocalising variant (Wald
-## ratio), and leave-one-out. Writes results/11_mr_sensitivity/.
+## clumping thresholds r2 < 0.1 to 0.6, and leave-one-out. Writes
+## results/11_mr_sensitivity/.
 
 suppressPackageStartupMessages(library(MendelianRandomization))
 source(here::here("config.R"))
 source(here::here("helpers.R"))
 
 out_dir <- step_dir("11_mr_sensitivity")
-COLOC_SNP <- "1_247438293_C_T" # rs12239046
 
 cad <- lapply(CAD_STUDIES, read_cad)
 names(cad) <- sapply(CAD_STUDIES, `[[`, "label")
@@ -66,24 +65,7 @@ ex01 <- sweep[[1]]$ex
 meta01 <- sweep[[1]]$meta
 
 
-## ---- B. the single colocalising variant -----------------------------------------
-# Wald ratio with the first-order SE: the exposure is estimated on 4,732 to
-# 575,531 people and is far more precise than the outcome.
-one <- filter(meta01, SNP == COLOC_SNP)
-wald_beta <- one$by / one$bx
-wald_se <- abs(one$byse / one$bx)
-single <- tibble(
-    label = "rs12239046 only", method = "Wald ratio", n_snps = 1,
-    estimate = wald_beta, se = wald_se,
-    ci_lower = wald_beta - qnorm(0.975) * wald_se,
-    ci_upper = wald_beta + qnorm(0.975) * wald_se,
-    p = 2 * pnorm(-abs(wald_beta / wald_se)),
-    bx = one$bx, bxse = one$bxse, by = one$by, byse = one$byse,
-    n_studies = one$n_studies)
-write_tsv(single, file.path(out_dir, "single_variant.tsv"))
-
-
-## ---- C. leave-one-out -------------------------------------------------------------
+## ---- B. leave-one-out -------------------------------------------------------------
 loo <- bind_rows(
     mutate(mr_for(meta01, "All instruments"), dropped = "none"),
     lapply(ex01$SNP, function(s) {
