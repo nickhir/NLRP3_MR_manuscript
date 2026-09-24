@@ -2,7 +2,8 @@
 # Sup Fig - leave-one-out forest.
 #
 # The NLRP3 -> CAD estimate with each instrument dropped in turn, and on the
-# single colocalising variant. Reads results/11_mr_sensitivity/, writes
+# single colocalising variant. Reads results/11_mr_sensitivity/ and the rsIDs
+# of results/02_instrument_table/, writes
 # figures_out/SupFig_leave_one_out.pdf.
 
 import csv
@@ -25,7 +26,7 @@ def load(p):
         return list(csv.DictReader(fh, delimiter="\t"))
 
 
-rsid = {r["SNP"]: r["rsid"] for r in load(IN_DIR / "instrument_rsids.tsv")}
+rsid = {r["SNP"]: r["rsid"] for r in load(RESULTS / "02_instrument_table" / "instrument_rsids.tsv")}
 
 rows = {}
 for r in load(IN_DIR / "leave_one_out.tsv"):

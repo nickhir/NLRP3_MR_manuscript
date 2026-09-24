@@ -91,24 +91,3 @@ loo <- bind_rows(
     })
 )
 write_tsv(loo, file.path(out_dir, "leave_one_out.tsv"))
-
-
-## ---- rsIDs for the figures -----------------------------------------------------------
-# From the mapping file, by variant in either allele order; it misses the two
-# rarest instruments, which take the readouts' own rsID columns by position.
-rsid_map <- fread(rsid_map_file, data.table = FALSE)
-fallback <- lapply(READOUTS[c("Neutrophil_count", "CRP", "GlycA")], function(cfg) {
-    read_region(cfg, CHR, INSTRUMENT_START, INSTRUMENT_END) %>% transmute(pos_hg38 = pos, rsid2 = rsid)
-}) %>%
-    bind_rows() %>%
-    filter(grepl("^rs", rsid2)) %>%
-    distinct(pos_hg38, .keep_all = TRUE)
-ann <- ex01 %>%
-    transmute(SNP, pos_hg38, rsid = sapply(SNP, function(s) {
-        f <- strsplit(s, "_")[[1]]
-        ids <- sprintf("chr%s:%s:%s:%s", f[1], f[2], c(f[3], f[4]), c(f[4], f[3]))
-        rsid_map$rsid[rsid_map$variant_id %in% ids][1]
-    })) %>%
-    left_join(fallback, by = "pos_hg38") %>%
-    transmute(SNP, rsid = coalesce(rsid, rsid2))
-write_tsv(ann, file.path(out_dir, "instrument_rsids.tsv"))

@@ -1,8 +1,7 @@
 ## 04 - Inflammatory readouts and effector cytokines
 ##
-## MR of the activity score against CRP, GlycA and neutrophil count, plus the
-## IL1B, IL18 and IL6 results of the proteome-wide MR (step 09).
-## Writes results/04_mr_biomarkers/.
+## MR of the activity score against CRP, GlycA and neutrophil count, and
+## against IL1B, IL18 and IL6 from UKB-PPP. Writes results/04_mr_biomarkers/.
 
 source(here::here("config.R"))
 source(here::here("helpers.R"))
@@ -25,11 +24,20 @@ proxy_mr <- lapply(c("CRP", "GlycA", "Neutrophil_count"), function(k) {
         mutate(block = "Systemic inflammation proxies", n_total = cfg$n)
 }) %>% bind_rows()
 
-# IL6 is assayed on four Olink panels; step 09 keeps the most significant.
-proteome <- fread(file.path(results_dir, "09_proteome_mr", "ukb_ppp_proteome_mr_results.tsv"),
-                  data.table = FALSE)
+# IL6 is assayed on four Olink panels; as in step 09, a gene keeps its most
+# significant assay.
+cytokines <- tibble(protein_id = readLines(ppp_manifest)) %>%
+    mutate(gene_name = sub("_.*$", "", protein_id)) %>%
+    filter(gene_name %in% c("IL1B", "IL18", "IL6")) %>%
+    mutate(mr = map(protein_id, function(id) {
+        mr_ppp_assay(file.path(ppp_dir, paste0(id, ".bgz")), exposure, ld_full)$res
+    })) %>%
+    unnest(mr) %>%
+    group_by(gene_name) %>%
+    slice_min(ivw_pval, n = 1, with_ties = FALSE) %>%
+    ungroup()
 cytokine_mr <- lapply(c("IL1B", "IL18", "IL6"), function(k) {
-    r <- proteome[proteome$gene_name == k, ]
+    r <- cytokines[cytokines$gene_name == k, ]
     tibble(outcome = k, nsnp = r$n_snps, method = c("IVW", "Weighted median"),
            estimate = c(r$ivw_beta, r$median_beta), se = c(r$ivw_se, r$median_se),
            p = c(r$ivw_pval, r$median_pval),

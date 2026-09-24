@@ -108,7 +108,7 @@ for (id in names(MANUAL)) {
 ## ---- inputs shared by several sheets --------------------------------------------
 inst <- read_result("00_instrument_selection/nlrp3_instruments.tsv")
 readouts_long <- read_result("02_instrument_table/instrument_readouts_long.tsv")
-rsid <- read_result("11_mr_sensitivity/instrument_rsids.tsv")
+rsid <- read_result("02_instrument_table/instrument_rsids.tsv")
 proteome <- read_result("09_proteome_mr/ukb_ppp_proteome_mr_results.tsv")
 leave_one_out <- read_result("11_mr_sensitivity/leave_one_out.tsv")
 

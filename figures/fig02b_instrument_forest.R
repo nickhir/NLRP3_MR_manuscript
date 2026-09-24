@@ -1,8 +1,7 @@
 ## Fig 2B - Instrument forest
 ##
 ## Per-instrument effects on the four readouts and on the activity score, each
-## oriented to the allele that lowers the score. Reads
-## results/02_instrument_table/ and the rsIDs of results/11_mr_sensitivity/.
+## oriented to the allele that lowers the score. Reads results/02_instrument_table/.
 
 suppressPackageStartupMessages({
     library(data.table)
@@ -14,8 +13,7 @@ source(here::here("figures", "style.R"))
 in_dir <- here::here("results", "02_instrument_table")
 readouts <- fread(file.path(in_dir, "instrument_readouts_long.tsv"), data.table = FALSE)
 aligned <- fread(file.path(in_dir, "instrument_table_aligned.tsv"), data.table = FALSE)
-rsids <- fread(here::here("results", "11_mr_sensitivity", "instrument_rsids.tsv"),
-               data.table = FALSE)
+rsids <- fread(file.path(in_dir, "instrument_rsids.tsv"), data.table = FALSE)
 
 SCORE <- "NLRP3 activity score"
 

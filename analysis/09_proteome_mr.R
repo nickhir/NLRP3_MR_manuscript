@@ -1,9 +1,8 @@
 ## 09 - Proteome-wide cis-MR
 ##
 ## MR of the activity score against every UKB-PPP plasma assay. Writes
-## results/09_proteome_mr/, read by steps 04 and 10.
+## results/09_proteome_mr/, read by step 10.
 
-suppressPackageStartupMessages(library(MendelianRandomization))
 source(here::here("config.R"))
 source(here::here("helpers.R"))
 
@@ -22,31 +21,12 @@ assays <- tibble(protein_id = readLines(ppp_manifest)) %>%
         panel = sub("^[^_]+_[^_]+_[^_]+_[^_]+_", "", protein_id)
     )
 
-# IVW and MR-Egger use the correlation matrix; the weighted median treats the
-# instruments as independent.
 run_one <- function(i) {
     a <- assays[i, ]
-    dat <- read_ppp(a$path, exposure)
-    mr_in <- mr_input(bx = dat$beta_exposure, bxse = dat$se_exposure,
-                      by = dat$beta_outcome, byse = dat$se_outcome,
-                      snps = dat$SNP, correlation = ld_full[dat$SNP, dat$SNP])
-    ivw <- mr_ivw(mr_in, correl = TRUE)
-    egger <- mr_egger(mr_in, correl = TRUE)
-    median <- mr_median(mr_in, weighting = "weighted")
+    mr <- mr_ppp_assay(a$path, exposure, ld_full)
     list(
-        res = tibble(
-            protein_id = a$protein_id, gene_name = a$gene_name, uniprot = a$uniprot,
-            olink_id = a$olink_id, panel = a$panel,
-            n_snps = nrow(dat), n_ppp = max(dat$n_outcome), min_info = min(dat$info),
-            ivw_beta = ivw$Estimate, ivw_se = ivw$StdError, ivw_pval = ivw$Pvalue,
-            ivw_het_q = ivw$Heter.Stat[1], ivw_het_p = ivw$Heter.Stat[2],
-            egger_beta = egger$Estimate, egger_se = egger$StdError.Est,
-            egger_pval = egger$Pvalue.Est, egger_intercept = egger$Intercept,
-            egger_intercept_se = egger$StdError.Int, egger_intercept_pval = egger$Pvalue.Int,
-            median_beta = median$Estimate, median_se = median$StdError,
-            median_pval = median$Pvalue
-        ),
-        harm = dat %>%
+        res = bind_cols(select(a, protein_id, gene_name, uniprot, olink_id, panel), mr$res),
+        harm = mr$dat %>%
             select(SNP, A1, A2, beta_exposure, se_exposure, beta_outcome, se_outcome,
                    eaf_outcome, p_outcome, info, n_outcome) %>%
             mutate(protein_id = a$protein_id, gene_name = a$gene_name, .before = 1)

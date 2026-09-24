@@ -488,6 +488,33 @@ read_ppp <- function(path, ex) {
         distinct(SNP, .keep_all = TRUE)
 }
 
+# MR of the activity score on one UKB-PPP assay (steps 04 and 09). IVW and
+# MR-Egger use the LD matrix; the weighted median treats the instruments as
+# independent.
+mr_ppp_assay <- function(path, ex, ld_full) {
+    dat <- read_ppp(path, ex)
+    mi <- MendelianRandomization::mr_input(
+        bx = dat$beta_exposure, bxse = dat$se_exposure,
+        by = dat$beta_outcome, byse = dat$se_outcome,
+        snps = dat$SNP, correlation = ld_full[dat$SNP, dat$SNP]
+    )
+    ivw <- MendelianRandomization::mr_ivw(mi, correl = TRUE)
+    egger <- MendelianRandomization::mr_egger(mi, correl = TRUE)
+    wm <- MendelianRandomization::mr_median(mi, weighting = "weighted")
+    list(
+        dat = dat,
+        res = tibble(
+            n_snps = nrow(dat), n_ppp = max(dat$n_outcome), min_info = min(dat$info),
+            ivw_beta = ivw$Estimate, ivw_se = ivw$StdError, ivw_pval = ivw$Pvalue,
+            ivw_het_q = ivw$Heter.Stat[1], ivw_het_p = ivw$Heter.Stat[2],
+            egger_beta = egger$Estimate, egger_se = egger$StdError.Est,
+            egger_pval = egger$Pvalue.Est, egger_intercept = egger$Intercept,
+            egger_intercept_se = egger$StdError.Int, egger_intercept_pval = egger$Pvalue.Int,
+            median_beta = wm$Estimate, median_se = wm$StdError, median_pval = wm$Pvalue
+        )
+    )
+}
+
 # One CAD study over the locus window, b and se on the file's own effect allele.
 read_cad <- function(cfg) {
     read_region(cfg, CHR, LOCUS_START, LOCUS_END) %>%
