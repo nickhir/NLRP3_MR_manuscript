@@ -572,6 +572,185 @@ interval_ld_matrix <- function(
 }
 
 
+## ---- instrument gene specificity -------------------------------------------------
+
+# An instrument must act on its target gene, not on a neighbour. On INTERVAL
+# whole-blood eQTL summary statistics (one release per chromosome, every gene
+# tested in cis), a variant fails if it is associated with expression of another
+# gene at P < p_threshold AND that association persists at P < p_threshold after
+# GCTA-COJO conditioning on that gene's lead eQTL. The conditioning separates a
+# variant's own effect on a neighbour from the echo of a very strong eQTL for
+# that neighbour reaching it through weak LD.
+#
+# A variant that is itself the other gene's lead, or too collinear with it for
+# COJO to separate the two, fails: there is nothing else to attribute the
+# association to.
+#
+# Returns list(excluded = the failing SNP ids, detail = one row per variant and
+# off-target gene at P < p_threshold). The releases are whole chromosomes of
+# 1-1.4 GB, so they are scanned with awk rather than read by read_region().
+eqtl_specificity <- function(
+    snps,
+    eqtl_file,
+    target_gene,
+    chr,
+    n,
+    p_threshold = EQTL_SPECIFICITY_P,
+    panel = ld_panel,
+    plink2 = plink2_bin,
+    gcta = gcta_bin
+) {
+    header <- strsplit(readLines(eqtl_file, n = 1), "\t", fixed = TRUE)[[1]]
+
+    # every row whose `column` is one of `keys`
+    scan_rows <- function(keys, column) {
+        key_file <- scratch_file(fileext = ".keys")
+        writeLines(as.character(unique(keys)), key_file)
+        data.table::fread(
+            cmd = sprintf(
+                "awk -F'\\t' 'NR==FNR {k[$1]; next} FNR==1 || ($%d in k)' %s %s",
+                match(column, header),
+                shQuote(key_file),
+                shQuote(eqtl_file)
+            ),
+            sep = "\t",
+            data.table = FALSE,
+            select = c("phenotype_id", "pos_b38", "effect_allele",
+                       "other_allele", "slope", "slope_se", "pval_nominal")
+        )
+    }
+
+    # onto project IDs one gene at a time: harmonise_region() keeps one row per
+    # variant, and a variant is tested against many genes
+    harmonise_genes <- function(rows) {
+        dplyr::bind_rows(lapply(split(rows, rows$phenotype_id), function(g) {
+            h <- harmonise_region(
+                data.frame(pos = g$pos_b38, ea = g$effect_allele,
+                           oa = g$other_allele, beta = g$slope,
+                           se = g$slope_se, p = g$pval_nominal),
+                list(p_col = "pval_nominal"),
+                chr
+            )
+            if (!is.null(h)) h$gene <- g$phenotype_id[1]
+            h
+        }))
+    }
+
+    pos <- as.integer(vapply(strsplit(snps, "_", fixed = TRUE), `[`, character(1), 2))
+    hits <- harmonise_genes(scan_rows(pos, "pos_b38")) %>%
+        dplyr::filter(SNPid %in% snps,
+                      sub("\\..*$", "", gene) != target_gene,
+                      p < p_threshold)
+
+    detail <- tibble::tibble(SNP = character(), gene = character(),
+                             p = numeric(), lead = character(),
+                             p_lead = numeric(), p_conditional = numeric(),
+                             excluded = logical())
+    if (nrow(hits) == 0) {
+        return(list(excluded = character(), detail = detail))
+    }
+
+    gene_rows <- harmonise_genes(scan_rows(unique(hits$gene), "phenotype_id"))
+    work <- scratch_path("eqtl_specificity")
+    for (g in unique(hits$gene)) {
+        rows <- gene_rows[gene_rows$gene == g, ]
+        tag <- file.path(work, g)
+
+        # PLINK1 fileset over the gene's cis window for COJO; its frequencies
+        # double as the check that a variant is in the panel at all
+        system2(plink2, c("--bfile", panel, "--chr", chr,
+                          "--from-bp", min(rows$pos), "--to-bp", max(rows$pos),
+                          "--make-bed", "--out", tag, "--threads", 4),
+                stdout = FALSE, stderr = FALSE)
+        system2(plink2, c("--bfile", tag, "--freq", "--out", tag, "--threads", 4),
+                stdout = FALSE, stderr = FALSE)
+        afreq <- data.table::fread(paste0(tag, ".afreq"), data.table = FALSE)
+
+        # A1 is the ASCII-first allele, REF in this alpha-sorted panel
+        a1 <- sub("^chr[^:]+:[0-9]+:([^:]+):.*$", "\\1", afreq$ID)
+        freq <- data.frame(
+            SNPid = from_panel_id(afreq$ID),
+            freq = ifelse(a1 != afreq$ALT, 1 - afreq$ALT_FREQS, afreq$ALT_FREQS)
+        )
+        ma <- dplyr::inner_join(rows, freq, by = "SNPid") %>%
+            dplyr::filter(freq > 0, freq < 1) %>%
+            # from the z-score: the release underflows to 0 for the strongest eQTLs
+            dplyr::mutate(p = pmax(2 * pnorm(-abs(beta / se)), 1e-300))
+
+        snps_g <- hits$SNPid[hits$gene == g]
+        if (nrow(ma) == 0) {
+            lead <- NA_character_
+            cma <- data.frame(SNP = character(), pC = numeric())
+        } else {
+            lead <- ma$SNPid[which.max(abs(ma$beta / ma$se))]
+            write.table(
+                dplyr::transmute(ma, SNP = to_panel_id(SNPid), A1, A2, freq,
+                                 b = beta, se, p, N = n),
+                paste0(tag, ".ma"), sep = "\t", quote = FALSE, row.names = FALSE
+            )
+            writeLines(to_panel_id(lead), paste0(tag, ".cond"))
+            system2(gcta, c("--bfile", tag, "--cojo-file", paste0(tag, ".ma"),
+                            "--cojo-cond", paste0(tag, ".cond"),
+                            "--out", tag, "--thread-num", 4),
+                    stdout = FALSE, stderr = FALSE)
+            cma_file <- paste0(tag, ".cma.cojo")
+            cma <- if (file.exists(cma_file)) {
+                data.table::fread(cma_file, data.table = FALSE)
+            } else {
+                data.frame(SNP = character(), pC = numeric())
+            }
+        }
+
+        for (s in snps_g) {
+            p_c <- if (identical(s, lead)) {
+                NA_real_
+            } else {
+                cma$pC[match(to_panel_id(s), cma$SNP)]
+            }
+            detail <- dplyr::bind_rows(detail, tibble::tibble(
+                SNP = s,
+                gene = g,
+                p = hits$p[hits$SNPid == s & hits$gene == g],
+                lead = lead,
+                p_lead = if (is.na(lead)) NA_real_ else ma$p[ma$SNPid == lead],
+                p_conditional = p_c,
+                excluded = is.na(p_c) || p_c < p_threshold
+            ))
+        }
+    }
+    list(excluded = unique(detail$SNP[detail$excluded]), detail = detail)
+}
+
+
+## ---- regional plots -------------------------------------------------------------
+
+# Recombination for a locuszoomr gg_scatter() drawn with recomb_col = NA: a thin
+# light-grey step line under the points, on a secondary axis in cM/Mb (the unit
+# of the UCSC map link_recomb() fetches; locuszoomr's own axis says "%"). As in
+# locuszoomr, 100 cM/Mb reaches the top of the data. Replaces the y scale, so
+# the -log10 P axis name and headroom are set here too.
+add_recomb_line <- function(p, loc, scale_max = 100,
+                            ylab = expression(-log[10](P - value))) {
+    rec <- loc$recomb
+    f <- max(loc$data[[loc$yvar]], na.rm = TRUE) / scale_max
+    step <- data.frame(x = c(rbind(rec$start, rec$end)) / 1e6,
+                       y = rep(rec$value, each = 2) * f)
+    p$layers <- c(list(ggplot2::geom_line(
+        data = step, ggplot2::aes(x = x, y = y), inherit.aes = FALSE,
+        colour = "grey65", linewidth = 0.25)), p$layers)
+    p +
+        ggplot2::scale_y_continuous(
+            name = ylab, limits = c(0, NA),
+            expand = ggplot2::expansion(mult = c(0, 0.18)),
+            sec.axis = ggplot2::sec_axis(~ . / f, name = "Recombination rate (cM/Mb)")
+        ) +
+        ggplot2::theme(
+            axis.title.y.right = ggplot2::element_text(colour = "grey45"),
+            axis.text.y.right = ggplot2::element_text(colour = "grey45")
+        )
+}
+
+
 ## ---- Mendelian randomization ----------------------------------------------------
 
 # Correlated IVW plus weighted median for one harmonised outcome table.

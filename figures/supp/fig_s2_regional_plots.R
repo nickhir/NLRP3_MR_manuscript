@@ -1,5 +1,5 @@
 ## Sup Fig 2 - regional association plots for the three inflammatory biomarkers
-## across NLRP3 +/- 1 Mb, with the eight instruments ringed in gold.
+## across NLRP3 +/- 1 Mb, with each readout's clumped leads ringed in gold.
 ##
 ## Reads the readout GWAS named in config.R, writes
 ## figures_out/SupFig2_regional_plots.pdf.
@@ -110,16 +110,18 @@ scatter_panel <- function(ld, title, show_legend, trait) {
         filter(SNPid %in% ring) %>%
         mutate(.x = .data[[ld$pos]] / 1e6, .y = .data[[ld$yvar]])
 
+    # recomb_col = NA: recombination is drawn by add_recomb_line() below, thin
+    # and grey, so it cannot be read as extra association peaks.
     p <- gg_scatter(ld, index_snp = index_snp, size = 0.5,
-                    LD_scheme = LD_SCHEME,
+                    LD_scheme = LD_SCHEME, recomb_col = NA, border = TRUE,
                     ylab = expression(-log[10](P - value))) +
         geom_hline(yintercept = -log10(5e-8), linetype = "dashed",
                    colour = "grey60", linewidth = 0.25) +
         # This readout's clumped signal leads, ringed in gold. gg_scatter plots
         # position in Mb, so the layer has to be on the same scale.
         geom_point(data = hl, aes(x = .x, y = .y), inherit.aes = FALSE,
-                   shape = 21, size = 0.75, colour = "#DAA520",
-                   fill = NA, stroke = 0.4) +
+                   shape = 21, size = 1.25, colour = "#DAA520",
+                   fill = NA, stroke = 0.5) +
         ggtitle(title) +
         theme(
             plot.title = element_text(hjust = 0.5, size = base_size * 1.3,
@@ -146,12 +148,8 @@ scatter_panel <- function(ld, title, show_legend, trait) {
             plot.margin = margin(t = 7, r = 3.5, b = 0, l = 3.5, unit = "pt")
         )
 
-    # Points sit on the axis, with headroom above the top hit. gg_scatter adds a
-    # secondary recombination axis, so more than one scale carries "y" and only
-    # the first is the one to widen.
-    y_scale <- which(vapply(p$scales$scales,
-                            function(s) "y" %in% s$aesthetics, logical(1)))[1]
-    p$scales$scales[[y_scale]]$expand <- expansion(mult = c(0, 0.18))
+    # Recombination, the cM/Mb axis and the headroom above the top hit.
+    p <- add_recomb_line(p, ld)
 
     if (show_legend) {
         p + guides(fill = guide_legend(override.aes = list(size = 0.85, stroke = 0),

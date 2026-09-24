@@ -106,7 +106,9 @@ for (id in names(MANUAL)) {
         text <- trimws(as.character(x[[j]]))
         text[text %in% c("", "NA")] <- NA_character_
         as_number <- suppressWarnings(as.numeric(text))
-        numeric_column <- !all(is.na(as_number[!is.na(text)]))
+        # numeric only if EVERY entry parses: a PMID column that also holds a
+        # DOI must stay text, or the DOI becomes NA
+        numeric_column <- any(!is.na(text)) && all(!is.na(as_number[!is.na(text)]))
         x[[j]] <- if (numeric_column) as_number else text
         if (numeric_column && all(is.na(as_number) | as_number == floor(as_number))) {
             fmt[j] <- INT_FMT
@@ -221,8 +223,6 @@ add("ST06",
 
 ## ---- ST07  CAD and imaging-defined atherosclerosis -------------------------------
 cad <- read_result("05_mr_cad/cad_meta_studies.tsv")
-meta_ivw <- leave_one_out[leave_one_out$dropped == "none" &
-                          leave_one_out$method == "IVW", ]
 
 # MR-Egger for the meta-analysis. Step 11 fits it but stores only the intercept,
 # so it is refitted here from the saved per-SNP effects and the saved LD matrix.
@@ -242,13 +242,7 @@ cad_rows <- data.frame(
     `95% CI` = ci(exp(cad$ci_lower), exp(cad$ci_upper)),
     `SE (beta or log OR)` = cad$se, `P value` = cad$pval,
     `Egger intercept` = NA_real_, `Egger intercept P` = NA_real_,
-    `Heterogeneity Q` = NA_real_, `Heterogeneity P` = NA_real_,
     check.names = FALSE, stringsAsFactors = FALSE)
-
-# Heterogeneity is reported for the meta-analysis IVW row only.
-meta_row <- cad_rows$`GWAS source` == "Meta-analysis" & cad_rows$Method == "IVW"
-cad_rows$`Heterogeneity Q`[meta_row] <- meta_ivw$het_q
-cad_rows$`Heterogeneity P`[meta_row] <- meta_ivw$het_p
 
 cad_egger_row <- data.frame(
     Outcome = "Coronary artery disease", `GWAS source` = "Meta-analysis",
@@ -257,7 +251,6 @@ cad_egger_row <- data.frame(
     `95% CI` = ci(exp(cad_egger$CILower.Est), exp(cad_egger$CIUpper.Est)),
     `SE (beta or log OR)` = cad_egger$StdError.Est, `P value` = cad_egger$Pvalue.Est,
     `Egger intercept` = cad_egger$Intercept, `Egger intercept P` = cad_egger$Pvalue.Int,
-    `Heterogeneity Q` = NA_real_, `Heterogeneity P` = NA_real_,
     check.names = FALSE, stringsAsFactors = FALSE)
 
 imaging <- indications[indication_key %in% IMAGING, ]
@@ -275,14 +268,12 @@ imaging_rows <- data.frame(
                       ci(imaging$ci_lower, imaging$ci_upper)),
     `SE (beta or log OR)` = imaging$se, `P value` = imaging$p,
     `Egger intercept` = NA_real_, `Egger intercept P` = NA_real_,
-    `Heterogeneity Q` = NA_real_, `Heterogeneity P` = NA_real_,
     check.names = FALSE, stringsAsFactors = FALSE)
 
 add("ST07",
     "Mendelian randomization estimates for the NLRP3 activity score on coronary artery disease and imaging-defined atherosclerosis.",
     rbind(cad_rows, cad_egger_row, imaging_rows),
-    c(`# of Instruments` = INT_FMT, `P value` = P_FMT,
-      `Heterogeneity P` = P_FMT, `Egger intercept P` = P_FMT))
+    c(`# of Instruments` = INT_FMT, `P value` = P_FMT, `Egger intercept P` = P_FMT))
 
 
 ## ---- ST08  cardiometabolic and lifestyle traits ----------------------------------
@@ -381,12 +372,8 @@ add("ST11",
         `Effect estimate (beta or OR)` = il1rn$estimate,
         `95% CI` = ci(il1rn$ci_lower, il1rn$ci_upper),
         `SE (beta or log OR)` = il1rn$se, `P value` = il1rn$p,
-        `Egger intercept` = il1rn$egger_intercept,
-        `Egger intercept P` = il1rn$egger_intercept_p,
-        `Heterogeneity Q` = il1rn$het_stat, `Heterogeneity P` = il1rn$het_p,
         check.names = FALSE, stringsAsFactors = FALSE),
-    c(`# of Instruments` = INT_FMT, `P value` = P_FMT, `Egger intercept P` = P_FMT,
-      `Heterogeneity P` = P_FMT))
+    c(`# of Instruments` = INT_FMT, `P value` = P_FMT))
 
 
 ## ---- ST12  proteome-wide MR ----------------------------------------------------------
@@ -405,11 +392,9 @@ add("ST12",
         `Egger P` = ranked$egger_pval,
         `Egger Intercept` = ranked$egger_intercept,
         `Egger Intercept P` = ranked$egger_intercept_pval,
-        `Heterogeneity Q` = ranked$ivw_het_q, `Heterogeneity P` = ranked$ivw_het_p,
         check.names = FALSE, stringsAsFactors = FALSE),
     c(`# of Instruments` = INT_FMT, `IVW P` = P_FMT, `IVW P Bonferroni` = P_FMT,
-      `Weighted Median P` = P_FMT, `Egger P` = P_FMT, `Egger Intercept P` = P_FMT,
-      `Heterogeneity P` = P_FMT))
+      `Weighted Median P` = P_FMT, `Egger P` = P_FMT, `Egger Intercept P` = P_FMT))
 
 
 ## ---- ST13  over-representation analysis ------------------------------------------------
@@ -432,11 +417,9 @@ add("ST13",
         `Gene ratio` = ora$GeneRatio, `Background ratio` = ora$BgRatio,
         `# Genes` = ora$Count,
         `P value` = ora$pvalue, `Adjusted P value` = ora$p.adjust,
-        `Q value` = ora$qvalue,
         Genes = gsub("/", ", ", ora$geneID),
         check.names = FALSE, stringsAsFactors = FALSE, row.names = NULL),
-    c(`# Genes` = INT_FMT, `P value` = P_FMT, `Adjusted P value` = P_FMT,
-      `Q value` = P_FMT))
+    c(`# Genes` = INT_FMT, `P value` = P_FMT, `Adjusted P value` = P_FMT))
 
 
 ## ---- ST14  CAD sensitivity analyses ----------------------------------------------------
@@ -444,7 +427,7 @@ sweep <- read_result("11_mr_sensitivity/r2_sweep.tsv")
 single_variant <- read_result("11_mr_sensitivity/single_variant.tsv")
 
 # One block per analysis, all on the same columns. The single-variant Wald ratio
-# has no diagnostics, so optional() leaves those four columns empty for it.
+# has no Egger intercept, so optional() leaves those two columns empty for it.
 sensitivity_block <- function(analysis, d) data.frame(
     Analysis = analysis, Method = method_label(d$method),
     `# of Instruments` = d$n_snps,
@@ -452,8 +435,6 @@ sensitivity_block <- function(analysis, d) data.frame(
     `SE (log OR)` = d$se, `P value` = d$p,
     `Egger intercept` = ifelse(d$method == "IVW", optional(d, "egger_intercept"), NA),
     `Egger intercept P` = ifelse(d$method == "IVW", optional(d, "egger_intercept_p"), NA),
-    `Heterogeneity Q` = optional(d, "het_q"),
-    `Heterogeneity P` = optional(d, "het_p"),
     check.names = FALSE, stringsAsFactors = FALSE)
 
 add("ST14",
@@ -464,8 +445,7 @@ add("ST14",
                                  paste("Leave-one-out: excluding", leave_one_out$dropped)),
                           leave_one_out),
         sensitivity_block("Shared colocalising variant only (rs12239046)", single_variant)),
-    c(`# of Instruments` = INT_FMT, `P value` = P_FMT,
-      `Egger intercept P` = P_FMT, `Heterogeneity P` = P_FMT))
+    c(`# of Instruments` = INT_FMT, `P value` = P_FMT, `Egger intercept P` = P_FMT))
 
 
 ## ---- ST15  exploratory disease indications ------------------------------------------------

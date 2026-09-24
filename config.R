@@ -51,12 +51,26 @@ GENE_END <- 247449108
 LOCUS_START <- as.integer(GENE_START - 200e3)
 LOCUS_END <- as.integer(GENE_END + 200e3)
 
+# +/-1 Mb: the outer edge of the flanks, the stretches between this and the
+# window above, where step 01 tests for colocalisation away from NLRP3.
+FLANK_START <- as.integer(GENE_START - 1e6)
+FLANK_END <- as.integer(GENE_END + 1e6)
+
 # +/-150 kb: the window the manuscript specifies for instrument construction.
 INSTRUMENT_START <- as.integer(GENE_START - 150e3)
 INSTRUMENT_END <- as.integer(GENE_END + 150e3)
 
 NLRP3_ENSG <- "ENSG00000162711"
 IL1RN_ENSG <- "ENSG00000136689" # chr2, positive control locus
+
+# Gene-specificity rule for instruments (steps 00, 08, 11; helpers.R
+# eqtl_specificity()): a variant is dropped if it is associated with expression
+# of another gene tested in cis in INTERVAL at this P, and the association
+# persists at it after conditioning on that gene's lead eQTL. Deliberately
+# lenient - a low bar for "associated" makes the screen strict - while the
+# conditioning keeps a neighbour's very strong eQTL from knocking out a variant
+# through weak LD alone.
+EQTL_SPECIFICITY_P <- 1e-3
 
 
 ## ---- instruments -------------------------------------------------------------
@@ -723,12 +737,16 @@ CARDIOMETABOLIC <- list(
     ),
     # GSCAN: "Beta based on the alternate allele" (its README), so ALT is the
     # effect allele. No allele frequency is distributed, by design.
+    # The public files exclude 23andMe, so the Ns are the README's for them, not
+    # the paper's 23andMe-inclusive totals (941,280; 557,337 / 674,754). The
+    # smoking split sums cohort N x % ever smokers from Liu et al. 2019 Suppl.
+    # Table 7 without 23andMe; over all cohorts that sum gives the paper's split.
     Alcohol = list(
         label = "Alcohol",
         group = "Lifestyle",
         accession = "GCST007461",
-        n = 941280,
-        n_label = "941,280",
+        n = 537349,
+        n_label = "537,349",
         build = "GRCh37",
         chr_col = "CHROM",
         pos_col = "POS",
@@ -748,9 +766,9 @@ CARDIOMETABOLIC <- list(
         label = "Smoking",
         group = "Lifestyle",
         accession = "GCST007474",
-        n_cases = 557337,
-        n_controls = 674754,
-        n_label = "557,337 / 674,754",
+        n_cases = 311629,
+        n_controls = 321173,
+        n_label = "311,629 / 321,173",
         build = "GRCh37",
         chr_col = "CHROM",
         pos_col = "POS",

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Fig 4D - IL1RN MR forest.
 #
-# Forest panel of the IL1Ra activity score against its outcomes.
+# Forest panel of the IL1Ra activity score against its outcomes. IVW only: with
+# three instruments step 08 fits no weighted median or MR-Egger.
 # Reads results/08_il1rn_positive_control/, writes figures_out/Fig4D_il1rn_mr_forest.pdf.
 
 import csv
@@ -24,7 +25,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 # only two-line titles in Figure 4 and at 7.8 they dominated the panel.
 FS_BODY, FS_SMALL, FS_TICK, FS_GROUP, FS_XLAB = 8.0, 7.6, 8.0, 8.0, 7.0
 GREY = "#8A8A8A"          # house grey, shared across the Figure 4 panels
-IVW_C, WM_C = "#C0392B", "#2C6FB5"
+IVW_C = "#C0392B"
 
 # outcome label in the results file -> how it appears in the panel
 PROTEIN = "IL1Ra concentration"
@@ -38,13 +39,12 @@ def load():
     rows = {}
     with open(IN_FILE) as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
-            if r["method"] not in ("IVW", "Weighted median"):
+            if r["method"] != "IVW":
                 continue
             key = r["outcome"]
             d = rows.setdefault(key, {})
-            slot = "ivw" if r["method"] == "IVW" else "wm"
-            d[slot] = (float(r["estimate"]), float(r["ci_lower"]),
-                       float(r["ci_upper"]), float(r["p"]))
+            d["ivw"] = (float(r["estimate"]), float(r["ci_lower"]),
+                        float(r["ci_upper"]), float(r["p"]))
             # Two lines, not one: spelled out in full - the reader has to see
             # that the grey numbers are cases and controls - but "42,034 cases
             # / 397,989 controls" is 44 mm at 7.6 pt, wider than the entire
@@ -92,14 +92,11 @@ def fh(mm_val):
 Y_HEADER = 3.6      # column headers
 Y_RULE = 6.4        # rule under them
 ROW_MM = 12.0       # between outcome rows within a block
-DY_MM = 2.3         # half-separation of the two method lines
 NAME_DY = 2.1       # outcome name above the row centre
 SUB_DY = 1.4        # first sample-size line below it
 SUB_STEP = 2.9      # between sample-size lines
 
 ROW_SPACING = fh(ROW_MM)
-DY_FIG = fh(DY_MM)
-DY_DATA = DY_MM / ROW_MM        # the same offset, in axis data units
 
 fig.text(X_LABEL, fy(Y_HEADER), "Outcome", fontsize=FS_BODY, fontweight="bold", va="center")
 fig.text(X_EST, fy(Y_HEADER), "Effect (95% CI)", fontsize=FS_BODY, fontweight="bold", va="center")
@@ -116,10 +113,9 @@ def text_block(r, ycentre):
     for i, line in enumerate(r["n"]):
         fig.text(X_LABEL + 0.018, ycentre - fh(SUB_DY + i * SUB_STEP), line,
                  fontsize=FS_SMALL, va="center", color=GREY)
-    for k, off in (("ivw", DY_FIG), ("wm", -DY_FIG)):
-        e, lo, hi, p = r[k]
-        fig.text(X_EST, ycentre + off, fmt_est(e, lo, hi), fontsize=FS_BODY, va="center")
-        fig.text(X_P, ycentre + off, fmt_p(p), fontsize=FS_BODY, va="center")
+    e, lo, hi, p = r["ivw"]
+    fig.text(X_EST, ycentre, fmt_est(e, lo, hi), fontsize=FS_BODY, va="center")
+    fig.text(X_P, ycentre, fmt_p(p), fontsize=FS_BODY, va="center")
 
 
 def draw_axis(rows, y_first, logscale, null, xlim, ticks, minor_step, xlabel):
@@ -136,16 +132,15 @@ def draw_axis(rows, y_first, logscale, null, xlim, ticks, minor_step, xlabel):
     ax.invert_yaxis()
     # The null line stops just above the FIRST row rather than running the
     # whole rect.
-    ax.plot([null, null], [-DY_DATA - 0.18, n - 0.5], color="black",
+    ax.plot([null, null], [-0.37, n - 0.5], color="black",
             linestyle="--", linewidth=0.5, dashes=(3, 2), zorder=1)
     for i, r in enumerate(rows):
-        for k, off, col in (("ivw", -DY_DATA, IVW_C), ("wm", DY_DATA, WM_C)):
-            e, lo, hi, _ = r[k]
-            ax.plot([lo, hi], [i + off] * 2, color=col, linewidth=0.8,
-                    solid_capstyle="butt", zorder=2)
-            ax.plot([e], [i + off], marker="D", markersize=2.5,
-                    markerfacecolor="white", markeredgecolor=col,
-                    markeredgewidth=0.7, zorder=3)
+        e, lo, hi, _ = r["ivw"]
+        ax.plot([lo, hi], [i, i], color=IVW_C, linewidth=0.8,
+                solid_capstyle="butt", zorder=2)
+        ax.plot([e], [i], marker="D", markersize=2.5,
+                markerfacecolor="white", markeredgecolor=IVW_C,
+                markeredgewidth=0.7, zorder=3)
     ax.set_xticks(ticks)
     ax.set_xticklabels(["%g" % t for t in ticks], fontsize=FS_TICK)
     ax.tick_params(axis="x", length=2.8, width=0.6, pad=0.6)
@@ -192,7 +187,7 @@ def legend_entry(x, colour, text):
 # width or label wording.
 fig.canvas.draw()
 renderer = fig.canvas.get_renderer()
-ITEMS = [(IVW_C, "IVW"), (WM_C, "Weighted Median")]
+ITEMS = [(IVW_C, "IVW")]
 label_w = []
 for _, text in ITEMS:
     probe = fig.text(0, 0, text, fontsize=FS_SMALL)

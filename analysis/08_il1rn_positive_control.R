@@ -344,6 +344,16 @@ if (length(need_proxy) > 0) {
 }
 instruments <- unique(instruments)
 
+## ----step5b_specificity-------------------------------------------------------
+# The same gene-specificity rule as step 00 (helpers.R::eqtl_specificity()),
+# here against IL1RN on the chr2 eQTL release.
+specificity <- eqtl_specificity(instruments, eqtl_file, IL1RN_ENSG, CHR,
+                                n = N_INTERVAL)
+instruments <- setdiff(instruments, specificity$excluded)
+message(sprintf("  gene specificity: %d off-target association(s) at P < %g, %d variant(s) excluded",
+                nrow(specificity$detail), EQTL_SPECIFICITY_P,
+                length(specificity$excluded)))
+
 ## ----step6_pca----------------------------------------------------------------
 effect_matrix <- function(field) {
     map_dfr(names(summary_stats), ~ summary_stats[[.x]] %>%
@@ -471,6 +481,7 @@ write_tsv(effects,          file.path(out_dir, "il1rn_instrument_effects.tsv"))
 write_tsv(instrument_table, file.path(out_dir, "il1rn_instruments.tsv"))
 write_tsv(loading_table,    file.path(out_dir, "il1rn_pca_loadings.tsv"))
 write_tsv(proxy_log,        file.path(out_dir, "il1rn_proxy_replacements.tsv"))
+write_tsv(specificity$detail, file.path(out_dir, "il1rn_specificity.tsv"))
 
 print(as.data.frame(instrument_table %>%
     transmute(rsid, SNP, eaf = round(eaf, 4),
@@ -538,33 +549,19 @@ run_mr_outcome <- function(dat) {
                    by = dat$beta_outcome,  byse = dat$se_outcome,
                    exposure = "cis-IL1RN trait", outcome = dat$outcome[1],
                    snps = dat$SNP, correlation = ld)
-    # mr_ivw()'s default switches to random effects under heterogeneity, and
-    # with heterogeneous instruments the fixed and random SEs can differ widely.
-    ivw <- mr_ivw(mi, correl = TRUE)
-    eg  <- mr_egger(mi, correl = TRUE)
-    wm  <- mr_median(mi, weighting = "weighted")
+    # IVW only: with this few instruments the weighted median and MR-Egger have
+    # nothing to work with. Random effects are set explicitly because mr_ivw()'s
+    # default falls back to fixed effects at three variants or fewer, which
+    # would ignore the disagreement between them.
+    ivw <- mr_ivw(mi, model = "random", correl = TRUE)
     tr  <- function(x) if (dat$binary[1]) exp(x) else x
 
-    bind_rows(
-        tibble(method = "IVW", estimate = tr(ivw$Estimate), se = ivw$StdError,
-               ci_lower = tr(ivw$CILower), ci_upper = tr(ivw$CIUpper), p = ivw$Pvalue,
-               egger_intercept = NA_real_, egger_intercept_p = NA_real_,
-               het_stat = ivw$Heter.Stat[1], het_p = ivw$Heter.Stat[2]),
-        tibble(method = "MR-Egger", estimate = tr(eg$Estimate), se = eg$StdError.Est,
-               ci_lower = tr(eg$CILower.Est), ci_upper = tr(eg$CIUpper.Est),
-               p = eg$Pvalue.Est, egger_intercept = eg$Intercept,
-               egger_intercept_p = eg$Pvalue.Int,
-               het_stat = eg$Heter.Stat[1], het_p = eg$Heter.Stat[2]),
-        tibble(method = "Weighted median", estimate = tr(wm$Estimate), se = wm$StdError,
-               ci_lower = tr(wm$CILower), ci_upper = tr(wm$CIUpper), p = wm$Pvalue,
-               egger_intercept = NA_real_, egger_intercept_p = NA_real_,
-               het_stat = NA_real_, het_p = NA_real_)
-    ) %>%
-        mutate(outcome = dat$outcome[1], scale = if (dat$binary[1]) "OR" else "beta",
-               n_snps = nrow(dat),
-               n_cases = dat$n_cases[1], n_controls = dat$n_controls[1],
-               n_total = if ("n_total" %in% names(dat)) dat$n_total[1] else NA_integer_,
-               .before = 1)
+    tibble(outcome = dat$outcome[1], scale = if (dat$binary[1]) "OR" else "beta",
+           n_snps = nrow(dat),
+           n_cases = dat$n_cases[1], n_controls = dat$n_controls[1],
+           n_total = if ("n_total" %in% names(dat)) dat$n_total[1] else NA_integer_,
+           method = "IVW", estimate = tr(ivw$Estimate), se = ivw$StdError,
+           ci_lower = tr(ivw$CILower), ci_upper = tr(ivw$CIUpper), p = ivw$Pvalue)
 }
 
 il1ra <- read_il1ra_protein()
@@ -587,7 +584,7 @@ print(as.data.frame(mr_results %>%
     transmute(outcome = substr(outcome, 1, 26), method, scale,
               est = signif(estimate, 3),
               CI = sprintf("(%.3g, %.3g)", ci_lower, ci_upper),
-              p = signif(p, 3), Q = signif(het_stat, 3))), row.names = FALSE)
+              p = signif(p, 3))), row.names = FALSE)
 
 ## ----session_info-------------------------------------------------------------
 sessionInfo()

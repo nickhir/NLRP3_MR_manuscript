@@ -1,116 +1,235 @@
-# Manuscript pre-submission audit — working log (Codex v2)
+# Independent pre-submission audit — Codex v2
 
-Started 22 September 2026. Independent sequential review of the supplied PDF, DOCX, supplementary workbook, original code, analysis outputs, and primary references. Other review reports are not evidence and are not read. Source files are read-only. Scope follows the user’s explicit instructions.
+Started 23 September 2026. Sources: user-specified manuscript PDF and DOCX, supplementary XLSX, primary analysis code/outputs, local cited-paper PDFs and primary online evidence. No other LLM review has been read or used. Source documents and analyses are read-only. Temporary work is confined to `/rds/user/nh608/hpc-work/trashtmp`.
 
-## Input record
+## EHJ benchmark summary
 
-- `NLRP3_manuscript_WIP.pdf`: SHA256 `cefa1f813dc92aac589de686dc83f0259c8ac3f55227cc4e79d1e0d2606ef117`
-- `NLRP3_manuscript_WIP.docx`: SHA256 `d55e832c07de26db600b2c6687a5fddfe8f5ec82a45e216d100575b25eb44b7d`
-- `SuppTables_completed_DRAFT.xlsx`: SHA256 `6c412fccd9bb79d7194d47bd4bbc232da58df12488923975bf7d0c501e8f51b5`
+21 full main texts from the main European Heart Journal; 0 abstract-only/part-only papers counted. Relevant supplements checked for 20/21; the 2019 body-composition/AF supplement was inaccessible. Counts describe this purposive sample, not journal mandates. A missing accessible supplement is unknown, not a negative.
 
-Temporary audit extractions: `/rds/user/nh608/hpc-work/trashtmp/manuscript_codex_v2_20260922`.
+| Item | Reported / applicable assessable papers | Qualification |
+|---|---:|---|
+| Between-instrument MR heterogeneity Q/I² | 5/18 | Excludes single-variant studies, inaccessible supplement and Q for cohorts/nonlinearity |
+| MR-Egger | 19/19 | Applicable multi-variant analyses; sometimes supporting polygenic stages, not cis target stage |
+| MR-Egger intercept | 17/19 | Same applicable analyses |
+| Weighted/penalized median | 17/19 | Same applicable analyses |
+| F statistic or explicit F threshold | 10/20 | Includes thresholds rather than numeric distributions |
+| Exact instrument R² evidence | 9/20 | Excludes generic education-score/source R² |
+| Colocalisation in contemporary cis studies | 3/5 | ANGPTL3/4, ANGPTL3, plasma proteins/MI, GIP, BP-protein study |
+| STROBE-MR cited/included after checklist publication | 2/12 | Excludes 2021 papers published before checklist and earlier papers |
+| Quantitative proportion mediated | 4/5 | Applicable MR mediation studies; fifth uses qualitative MVMR attenuation |
+| Structured abstract | 21/21 | Historical headings differ from current instructions |
+| Graphical abstract or take-home figure | 20/21 | Includes historical take-home figures |
+| Standalone Data Availability/Data Sharing statement | 16/21 | Older papers sometimes put source access in Methods |
+| Funding statement | 21/21 | Presence only |
+| Conflict-of-interest statement | 21/21 | Presence only |
+| Separate Acknowledgements | 18/21 | Conditional contributions; integrated acknowledgements excluded |
+| Separate Author Contributions | 3/21 | Current CRediT submission fields distinct from manuscript section |
 
-## Audit progress
-
-Initial extraction completed. Paragraph identifiers below refer to top-level DOCX paragraphs, including blank paragraphs in the numbering. All review areas are complete. Final retained findings and decisions are recorded in section 7.
-
-## 1. References and citation support — completed
-
-Checked all 65 bibliography entries and embedded citation records. Local PDF collection was searched first; 123 PDFs were extracted to the audit temporary directory. Missing papers and publication-version differences were checked using publisher-deposited Crossref records, original journal pages, PubMed article records, and official software documentation. The per-reference source ledger is `reference_verification.json` in the temporary directory. No fabricated reference, broken citation-to-bibliography mapping, or major bibliographic corruption was identified.
-
-Key claim checks:
-- CANTOS, CLEAR-SYNERGY, IL1RN genetic evidence, IL-18 metabolic effects, NLRP3 blood-pressure experiments, Schunk et al., imaging phenotype definitions, and recurrent-pericarditis evidence were checked against local papers. Their main cited claims are supported.
-- The local Yao 2026 paper explicitly describes neutral ZEUS results. The sponsor's original 31 July 2026 announcement independently confirms HR 0.99 (95% CI 0.88–1.11): https://www.novonordisk.com/news-and-media/news-and-ir-materials/news-details.html?id=916587. This is not an outdated or unsupported trial claim.
-- Reference 7 supports IL-18-induced IL-6 in the experimental system studied (https://pubmed.ncbi.nlm.nih.gov/15161979/). Reference 9 supports NLRP3-dependent post-MI granulopoiesis (https://pubmed.ncbi.nlm.nih.gov/34788059/).
-- The published 2025 Tokolyi paper and 2024 Senkevich paper match the manuscript references; the local collection contains their earlier preprints. This version difference is resolved and is not a finding.
-- P086 correctly calls the CANTOS TET2 analysis exploratory. The source's treatment-interaction P value is 0.14, so it supports a subgroup hypothesis, not a proven differential response. In this context this does not warrant a separate major finding.
-- General methods references were checked for relevance, including multivariable MR and multiple-mediator analysis. Mathematical implementation is assessed separately below.
-
-**Reportable major citation findings:** none at this stage. No important citation identity remains unresolved.
-
-## 2. Methods versus code — completed
-
-Read the analysis scripts for selection, colocalisation, instrument strength, biomarker and CAD MR, cardiometabolic MR, mediator construction, MVMR, positive control, proteome analysis, enrichment, sensitivity analyses and exploratory indications; checked shared harmonisation and LD functions and the data-source registry. The supplementary equations were read from Word equation XML, not inferred from plain-text extraction.
-
-Verified implementation:
-- NLRP3 selection uses ±150 kb, within-trait clumping at r²=0.1 over 250 kb, high-LD blocks at 0.95 over 40 kb, cross-trait component merging, availability-first representatives and proxy replacement. Eight final SNPs have maximum pairwise r²=0.06108 in the saved signed LD matrix.
-- PCA uses centred/scaled columns to derive weights, then applies those weights to the original trait effect estimates as specified by the supplementary formula. The main text's compressed selection description is clarified in the supplement.
-- Colocalisation conditions the upstream expression signal and uses four inflammatory/expression traits, with the stated priors and posterior threshold. It does not include CAD or the cardiometabolic outcomes; implications are evaluated in the scientific pass.
-- MR uses signed LD, harmonised effect alleles, log-odds conversion where necessary, and random-effects IVW. Outcome-specific instrument availability and pericarditis proxy use are retained in the outputs.
-- Mediation uses genome-wide instruments clumped within and across traits, a mutually adjusted regression without an intercept, and multiplicative random effects. The actual final model has 1,265 instruments. Four CAD studies contribute at 1,240 variants; three contribute at 20 and two at 5. The All of Us extract contains mediator instruments as well as the NLRP3 region. The potential concern that All of Us was absent from mediation is resolved.
-- The effective-protein-test script records 1,821 tests from 95% variance explained. Underlying individual-level correlation data are not included; the calculation cannot be independently reproduced from this repository. The arithmetic of its threshold is checkable and is evaluated below.
-
-Additional implementation observations not currently retained as final findings:
-- For six proteins assayed on four panels each, the code selects the smallest IVW P value (`04_mr_biomarkers.R`, lines 152–158; `09_proteome_mr.R`, lines 277–284). This rule is omitted from the Methods. All four IL-6 assays independently pass the stated proteome threshold, and none of the other repeated proteins passes it, so this does not change the reported discovery set. The selected IL-6 assay and estimate must still match the reported results.
-- Proteome metadata contain an old all-ancestry comment, but the configured directory is `Combined_European` and recorded sample sizes agree with the European release. Do not infer a manuscript ancestry error from that stale comment.
-
-**Reportable major methods/code discrepancies:** none confirmed in this pass. Statistical interpretation and numerical reproduction follow.
-
-## 3. Numerical results against code and outputs — completed, figure rendering checked separately
-
-Independently reconstructed the PCA score, its scaling constant, joint F statistic, LD-aware IVW matrix estimator, SNP-level CAD meta-analysis, MVMR coefficients, conditional F statistics and mediation point estimates. The independent GLS implementation reproduced 2,969 IVW fits (including all 2,940 protein assays) to floating-point precision: maximum absolute discrepancies in estimates, standard errors and P values were 1.12e-15, 2.23e-16 and 6.67e-16 respectively. Evidence: temporary `recompute_results.R`, `recompute_results.log` and `numerical_recomputation.tsv`.
-
-Verified quantities include PC1 variance explained 96.76758%, joint F=92.0066, CAD OR=1.21271, conditional F statistics 36.67343/15.39224/37.24040, summed indirect log-OR=0.1674491, fraction=0.8682394 and remaining OR=1.025737. The manuscript's rounding is consistent. The CAD Egger intercept is 0.008907893 (SE 0.003754381, P=0.01766022), also consistent with the Results. The reported regional association peaks and posterior probability were verified from the saved regional data and a fresh HyPrColoc fit (PP=0.9671).
-
-Regenerated the supplementary workbook into the temporary audit directory using the original build script, then compared the supplied workbook with that reconstruction for ST05–ST09 and ST11–ST15. All dimensions, labels and numerical values in those sheets match, including 43,830 numerical cells in ST12. This is supplemented by the independent calculations above, so it does not rely solely on the build script agreeing with itself. Proteome counts are 27 lower and 7 higher at 0.05/1,821; the named enriched pathways and contributing amino-acid enzymes match the enrichment output.
-
-**Verified reportable finding N1 — IL-6 effect has the wrong sign.** DOCX Results P065 (section 4.2, second paragraph) prints “IL-6 (β = 0.72; 95% CI −0.95 to −0.48; P = 2.8×10⁻⁹)”. The selected assay output is β=−0.7167893772, SE=0.1206044948, P=2.7933086e-9; ST06 is correctly negative. The point estimate printed in the text is outside its own confidence interval and reverses the effect direction. The supplied PDF page 8 already prints the correct β=−0.72. Correct the DOCX and regenerate the submission PDF from the corrected source. The original file hashes are unchanged; this is a difference between the supplied formats, not a change during the audit.
-
-Resolved checks:
-- HyPrColoc nominates rs58546652, whereas the single-variant sensitivity analysis uses rs12239046. A fresh calculation from the actual reference panel gives r²=0.9821999 between them. This is a strong proxy for the same signal, so the label does not warrant a major finding.
-- The Discussion's maximum r²=0.26 between rs10754555 and the eight instruments is reproduced (0.2566831).
-- Source-count checks were completed in the table pass (section 5); the temporary API rate limit was resolved.
-
-## 4. Scientific and statistical interpretation — completed
-
-Reviewed the full causal argument, instrument biology, selection strategy, sensitivity analyses, two-step mediation, multiple testing, interpretation of binary outcomes, and clinical extrapolation against the manuscript's cited methods papers. The independent numerical checks do not identify an algebraic error in the main MR or mediator model. Mutually adjusted mediator-to-CAD coefficients are used when the indirect effects are summed. The exploratory disease analysis is explicitly labelled exploratory and its lack of multiplicity adjustment is disclosed; this is not by itself a separate finding. The Discussion appropriately distinguishes lifelong genetic perturbation from treatment, general-population incidence from secondary prevention, and lack of clear evidence from proof of no effect.
-
-**Verified concern S1 — the claim of a single regional shared signal goes beyond the analysis performed.** Results P062 says there were no additional colocalising signals within ±1 Mb and that the biomarker associations therefore arise from a single shared signal. The actual HyPrColoc input spans ±200 kb (`config.R`, lines 45–55; `analysis/01_colocalisation.R`, lines 98–126). Supplementary Figure 2 is a ±1 Mb association plot; its script performs no colocalisation, secondary-signal conditioning or exhaustive signal search. HyPrColoc partitions traits into clusters and does not establish absence of additional signals once it finds a shared dominant signal. The eight retained variants are also not all explained by the dominant variant: as a diagnostic only, approximate conditional z-tests using the saved reference LD retain genome-wide significant CRP associations for six of the seven other variants after conditioning on rs12239046 (smallest P about 3e-20). This diagnostic is not a substitute for formal fine-mapping, but makes the exclusivity statement particularly unsafe. The PP=0.9671 supports a shared signal; it does not demonstrate that it is the only one across ±1 Mb. Action: either document an appropriate search/conditional analysis or remove the unsupported exclusivity claim. Evidence: `signal_structure.tsv` and the original scripts; Foley et al. 2021, DOI 10.1038/s41467-020-20885-8.
-
-**Interpretation concern S2 — reviewed and not retained as a separate final finding.** Colocalisation covers expression and inflammatory biomarkers, not CAD or the proposed mediators. The non-zero Egger intercept and possible horizontal cardiometabolic effects warrant care, but the Discussion explicitly acknowledges this ambiguity. The shared-signal proxy gives CAD OR=1.047 (95% CI 0.889–1.233; P=0.583), which is compatible with the main estimate; its lack of significance does not itself invalidate the result. Similarly, the remaining CAD effect is the net of all unmodelled pathways and does not isolate inflammation. However, the manuscript's statement that the data provide no genetic support for protection is not a claim to have proved the absence of protection, and it explicitly acknowledges a compatible modest benefit or harm. These points do not provide a sufficiently definite additional error to justify a separate must-fix item under the user's selective reporting threshold. Methodological context: Gill et al. 2024, https://link.springer.com/article/10.1186/s12916-024-03700-9, and Burgess et al. 2023 (local PDF).
-
-## 5. Figures, tables, captions and cross-references — completed
-
-Rendered the supplied PDF and inspected Figures 1–5, all four supplementary figures and their captions. Checked the displayed MR estimates against the corresponding tables and outputs. Checked all manuscript figure/table callouts, workbook Contents mappings and supplementary sheet numbering. No missing figure, wrong numbering, switched panel, broken equation in a caption, or major cross-reference error was found. The UpSet plot's ten eligible components versus eight final instruments is explained by data availability in the supplementary Methods. The single-variant and leave-one-out forest plots agree with their numerical outputs.
-
-**Verified reportable finding F1 — Figure 3E clips error bars at the null.** The waterfall x-axis starts at OR=1, and the plotting code explicitly replaces each lower endpoint with `max(or_lower, 1.0)` (`figures/fig03e_mediation_waterfall.py`, around lines 92–116). The three adjusted lower bounds are 0.936, 0.880 and 0.852, so none is actually drawn. This makes the plot visually show only the side above the null, despite the correctly printed numerical interval on the final row. Extend the axis below the smallest lower bound and draw the complete intervals. This is a plotting problem, not a calculation problem.
-
-**Verified reportable finding F2 — smoking and alcohol sample sizes describe a larger release than the one analysed.** Figure 3C and ST04 give smoking 557,337 cases/674,754 controls (total 1,232,091) and alcohol n=941,280. The actual local GWAS files used by the code have N=632,802 for smoking and N=535,425 for alcohol at every one of the eight instruments. These are substantial differences, not variant-level rounding. The full-study GWAS Catalog metadata reproduce the larger manuscript numbers, but the analysed public releases exclude the restricted component. Correct Figure 3C and ST04 to the actual analysed release; use its source-specific case/control split only if available. Evidence: `release_sample_sizes.json`, source files `datasets/smoking_initiation_GCST007474.NLRP3region.tsv.gz` and `datasets/alcohol_consumption_GCST007461.NLRP3region.tsv.gz`. The original GSCAN publication and consortium page distinguish publicly available summary statistics from restricted data: https://genome.psych.umn.edu/research/gscan and https://doi.org/10.1038/s41588-018-0307-5.
-
-**Verified reportable finding F3 — Parkinson's proxy cases are labelled as diagnosed cases.** ST03 and Figure 5 report 33,674 Parkinson's cases. The primary record for the exact analysed accession, GCST009325, specifies **15,056 cases plus 18,618 proxy cases**, with 449,056 controls; the phenotype includes having a first-degree relative with Parkinson's disease. Thus more than half the reported “cases” are proxy cases. Correct the sample description and Figure 5 label/caption and make the outcome definition explicit in Methods/ST03. This does not establish that the effect estimate is wrong; it corrects what outcome population was analysed. Source: https://www.ebi.ac.uk/gwas/rest/api/studies/GCST009325, saved as `source_GCST009325.json`; original study https://pubmed.ncbi.nlm.nih.gov/31701892/.
-
-Additional checks:
-- Completed source metadata checks for all 29 unique GWAS Catalog accessions considered in ST01–ST04. Aside from the release/sample-description findings above, no major discrepancy was identified. BMI varies by SNP as expected and does not warrant a separate finding.
-- The checked supplementary worksheets contain no Excel error cells, broken formulas, hidden results sheets or missing header mappings. Download URLs are plain text, which does not itself constitute broken citation support.
-- All 38 distinct ClinicalTrials.gov records cited in ST16 were checked through the primary registry API. Disease mappings, reported maximum phases and dates are compatible with the stated 28 April 2026 search. NCT04015076 includes a CAPS cohort in its full protocol despite its abbreviated condition field saying healthy participants. No finding is retained from that apparent discrepancy. The selnoflast/IZD334 naming is confirmed by the original USAN record. No major trial-reference error was identified.
-- Figure 5 has tight spacing around some labels, but the results are readable; this is not retained as a separate major issue.
-
-## 6. Internal consistency, terminology and document integrity — completed
-
-Visually inspected all 31 PDF pages, including the bibliography and both displayed score-construction equations. Checked DOCX XML for tracked insertions/deletions, comments, hidden text, style/font anomalies, hyperlinks and section breaks. There are no tracked changes, comments or hidden-text runs. The equations and mathematical symbols render correctly. A main-text DOCX/PDF comparison found one substantive difference: the IL-6 minus sign described in N1. Other differences were extraction artefacts around line-end hyphens and superscripts. The original input SHA256 hashes still match the initial record.
-
-**Verified reportable finding D1 — unfinished author list.** The title page (P002; PDF page 1) contains a long dotted placeholder between Nick Hirschmüller and Stephen Burgess. Replace it with the final author list and check affiliations before submission.
-
-**Verified reportable finding D2 — unfinished Funding statement.** P100 (PDF page 14) reads “This work was funded by [will be added].” Replace the placeholder with the actual funders and relevant grant details.
-
-**Verified reportable finding D3 — missing UK Biobank data-use declarations.** The manuscript describes analyses using individual-level UK Biobank data but contains no ethics/consent statement, approved application number, or UK Biobank resource acknowledgement. This is a reporting omission; there is no inference that approvals were absent. Add the applicable ethics approval/consent statement and the approved application acknowledgement. UK Biobank's publication guidance explicitly requires the resource/application acknowledgement: https://community.ukbiobank.ac.uk/hc/en-gb/articles/16594178325277-Submitting-publications-and-use-of-UK-Biobank-images.
-
-Other checks not promoted to final findings:
-- PDF page 13 is entirely blank. Remove it when regenerating the final PDF, but this does not need a separate high-priority checklist item.
-- The Figure 4 caption continues onto the following page without lost text. This is not a substantive document-integrity error.
-- Paragraph styles in the trial-search supplement include Heading2 assignments, but their rendered appearance is normal. No formatting finding is retained.
-- The stated public GitHub code URL and its unauthenticated repository API both return HTTP 200. The initial browser cache failure is resolved and does not indicate a broken manuscript link.
-- No pervasive or scientifically misleading gene/protein naming, abbreviation, significant-digit, italicisation or statistical-symbol problem was found beyond issues already recorded.
+Technical sensitivity details commonly reside in Methods/Supplement; causal language is often used but linked to genetic evidence and limitations. Legend abbreviation practice is mixed; repeated definitions in every legend are not universal. Full per-paper evidence: [ehj_mr_benchmark.md](/rds/user/nh608/hpc-work/trashtmp/ehj_mr_benchmark.md).
 
 
-## 7. Structure, narrative and final reviewer-style pass — completed
+## Step 0A — current EHJ submission instructions
 
-Re-read the Abstract, Methods-to-Results transitions, principal findings, sensitivity interpretation and full Discussion as a clinical cardiovascular reviewer. The study question, analysis sequence and main results form a coherent narrative. There is no substantial missing result, major repetition, unsupported new conclusion introduced only at the end, or additional major citation problem. The reported primary CAD association and mediation arithmetic are internally consistent. S2 above was explicitly reconsidered and removed from the final finding set because the manuscript already gives the relevant qualifications and the audit did not demonstrate an additional definite analytical error.
+Completed detailed reading of the current author instructions, Clinical Research and Translational Science requirements, linked quality standards/statistical guidance, graphical abstract and accessibility/alt-text guidance. Checklist: [ehj_author_guidelines_checklist.md](/rds/user/nh608/hpc-work/trashtmp/ehj_author_guidelines_checklist.md), 72 checkable groups, with mandatory/recommended/conditional distinctions.
 
-Retained final checklist items: N1 (DOCX IL-6 sign/version mismatch), S1 (regional colocalisation overstatement), F1 (waterfall interval clipping), F2 (smoking/alcohol release sample sizes), F3 (Parkinson proxy-case definition), D1 (author placeholder), D2 (funding placeholder), and D3 (ethics/consent/application acknowledgement). Minor layout, style and wording observations are not promoted to final findings. The complete working log was reviewed against the requested scope before drafting the final report.
+Key interpretive decisions: format-free initial submission is permitted; Oxford English is required; structured abstracts may use defined abbreviations; no universal abbreviation-list requirement was found; figure-legend definitions and end-matter order contain contradictory wording, so benchmark evidence is needed before alleging a breach. Current main-article limit is 5,000 words and fixes will be designed to replace/cut or use the Supplement. No word-count finding will be raised. Current required alt text is assessed separately from older published practice. Direct declarations-form and EndNote downloads were inaccessible, but the instructions specify applicable requirements.
 
-**Important remaining verification U1 — effective number of protein tests.** The repository's step 09b records the method and the answer 1,821, but its source variables `ukb_ppp` and `protein_cols` are not populated by a reproducible input-loading step, and no saved protein correlation matrix or eigenvalue output is supplied. Consequently, the exact effective-test count was not independently verified. The stated threshold arithmetic and resulting discovery count were checked. For a conclusive audit of this multiplicity correction, verify 1,821 against the original saved eigenvalues/correlation calculation; no individual-level data need be placed in the publication package. This is the only unresolved item retained in the concise final report.
+## Review-area tracking
 
-Additional reporting guidance for D3: ICMJE recommends reporting the relevant human-research protections and consent; https://www.icmje.org/recommendations/browse/roles-and-responsibilities/protection-of-research-participants.html. The manuscript's omission is a disclosure issue, not evidence about whether approval exists.
+Planned reporting sequence: 3 Methods/code; 4 Results/outputs; 2 scientific/statistical; 1 references; 5 internal consistency; 6 figures/tables; 9 captions/cross-references; 7 structure/narrative; 11 declarations; 8 terminology; 10 document integrity; 12 dedicated typo pass; 13 dedicated consistency pass; 14 holistic reviewer pass. Findings are appended only after root verification; unresolved questions are labelled, and duplicates consolidated.
+## Step 0B — completed
 
-Review output only: originals and analysis files were not edited. Temporary scripts, calculations, API records and page renders remain under the requested audit temporary directory. The final concise checklist is `manuscript_review_codex_v2.md`.
+All 21 main texts were read before beginning manuscript review. Root checked the three agent records, denominator qualifications, and primary-source passages for key counts. Benchmark omissions do not establish mandatory reporting. Guidelines take priority where explicit and current.
+
+## Area 3 — Methods versus code (complete)
+
+Root read the manuscript Methods/Supplement and independently checked the output rows and shared-component selection code underlying the two findings below. Full implementation coverage and cleared checks: [codex_v2_methods_audit.md](/rds/user/nh608/hpc-work/trashtmp/codex_v2_methods_audit.md). No critical implementation error verified; no important unresolved Methods/code item.
+
+**M1 — MUST FIX: shared-signal selection is described as variant-level significance.** Methods3.3 (P037; PDFp5 lines139–141) and Supplementary Figure1 caption(P119; PDFp21) say retained variants are individually significant for two traits. Code analysis/00_instrument_selection.R:267–337 selects shared LD components then representative/proxy variants; rs74154640 passes5×10⁻⁸ for CRP only (expression3.50×10⁻⁶, GlycA1.15×10⁻⁷, neutrophils9.01×10⁻⁸). results/00_instrument_selection/nlrp3_proxy_replacements.tsv gives its substitution at r²=.910596. Supplementary Figure1 plots27 signal components, of which10 are shared, not27 individual variants. Fix main wording: “We identified signals shared by at least two traits and selected eight representative variants.” Correct the supplementary figure title/count descriptions to signals, and explain10 shared signals→8 representatives with complete effects. Existing Supplementary Methods largely gives the correct procedure. EHJ norm: Not a reporting-norm issue.
+
+**M2 — MUST FIX: wrong colocalisation-candidate label.** Methods3.5(P041), Results4.5(P074), Supplementary Figure4 heading/caption(P124), ST14 A32 call rs12239046 the shared colocalising variant. HyPrColoc nominates1_247438476_C_T=rs58546652 (PP.9671, fraction explained.9857); single-variant MR uses1_247438293_C_T=rs12239046. Independent same-panel PLINK check gives r²=.9822. The sensitivity result remains useful. Replace label by “a variant tagging the shared signal (rs12239046)” consistently; identify the actual candidate in the Supplement if needed. EHJ norm: Not a reporting-norm issue.
+
+## Area 4 — Results versus outputs (complete)
+
+Root independently checked the primary IL6 and IL1RN/RA result rows, corresponding manuscript paragraphs, Figure2C/Figure4D rendering and PDFp8. Full audit evidence: [codex_v2_results_audit.md](/rds/user/nh608/hpc-work/trashtmp/codex_v2_results_audit.md). All checked workbook result cells matched outputs, including2,922 proteomics rows and190 enrichment rows. Independent generalized-least-squares calculations reproduced2,948 IVW results. Main CAD totals, effect estimates, mediation arithmetic, variance percentages, instrument strength and sensitivity directions matched. No important unresolved numerical item.
+
+**N1 — MUST FIX: DOCX-only IL6 sign.** Results4.2 second paragraph(P063) gives beta+0.72 despite wholly negative CI; primary estimate−.7167894, ST06E12 and Figure2C give−0.72. Supplied PDFp8 line287 already gives−0.72. Correct Word and regenerate a consistent submission PDF. EHJ norm: Not a reporting-norm issue.
+
+**N2 — MUST FIX: stale RA positive-control estimate.** Results4.5 positive-control paragraph(P072; PDFp10 lines351–352) says OR.26(.07–.94), P.04. Primary results/08_il1rn_positive_control/il1rn_mr_results.tsv and ST11F4/G4/I4/Figure4D give OR.2160585(.1133156–.4119579), P3.26764×10⁻⁶. Replace text in both versions with “OR =0.22, 95% CI0.11 to0.41, P =3.3×10⁻⁶”. EHJ norm: Not a reporting-norm issue.
+
+M2 independently confirmed; consolidate rather than repeat. GoutP is present as a Word equation and correct, not a missing-number finding. Main and supplementary formula omissions in the initial plain extraction were artefacts; math-aware extraction and visual checks resolve them.
+
+## Area 2 — Scientific and statistical review (complete)
+
+Read Abstract, all main sections and supplementary methods; considered target validity, genetic versus pharmacological interpretation, biological validation, direction/scaling, mediation arithmetic, sensitivity evidence and multiplicity. Main conclusions are qualified as genetic evidence; limitations acknowledge pleiotropy, treatment timescale, population/tissue relevance and power. No additional critical scientific/statistical problem verified. Reporting norms do not justify adding a generic methods wish list: between-instrument heterogeneity is located in5/18 applicable assessable benchmark papers; STROBE-MR in2/12 post-checklist papers. Code performs stated heterogeneity assessment. Broad failure to add those outputs/checklists is not itself a final-report finding. Two specific external-evidence interpretations are handled under Area1 after primary-source verification. Statistical reporting of sidedness/default significance is assessed under guidelineG50.
+
+
+## Area 1 — References (complete)
+
+All 65 entries and 72 citation fields checked for identity, numbering and support, using local PDFs first. Root verified the four findings below against the primary papers and exact manuscript paragraphs. Full per-reference access/evidence ledger: [codex_v2_references_ledger.md](/rds/user/nh608/hpc-work/trashtmp/codex_v2_references_ledger.md). No fabricated reference, unused entry, broken citation mapping or important unresolved support question found.
+
+**R1 — MAJOR: differential treatment benefit overstated.** Discussion paragraph beginning “Although our findings…” (P082; ref52) says TET2 carriers “showed a greater reduction”. The cited exploratory CANTOS analysis reports interaction P=.14 and characterises the difference as equivocal. Replace with “showed a numerically greater reduction”; one word preserves the supported subgroup rationale. Primary evidence: [Svensson et al., Results](https://pmc.ncbi.nlm.nih.gov/articles/PMC8988022/). EHJ norm: Not a reporting-norm issue (interpretation of cited evidence).
+
+**R2 — MUST FIX: unsupported toxicity mechanism.** Supplementary Information14.4, final paragraph(P144; ref65): delete “off-target” from “off-target hepatotoxicity”. Mangan2018 p599 explicitly says the cause of the liver toxicity signal is unclear. Root read the primary PDF extraction, lines1362–1371. [Primary source](https://doi.org/10.1038/nrd.2018.97). EHJ norm: Not a reporting-norm issue.
+
+**R3 — MUST FIX: incorrect author-name parsing.** Ref9(P154): “Ho Park K”→“Park KH”. Primary article p31 gives Ki Ho Park and contributions p43 say Dr Park; official institutional laboratory also confirms surname. Correct reference-manager name fields before refreshing. EHJ norm: Not a reporting-norm issue.
+
+**R4 — MUST FIX: incomplete published title.** Ref52(P197): restore “: An Exploratory Analysis of the CANTOS Randomized Clinical Trial”. Root verified primary article heading. EHJ norm: Not a reporting-norm issue.
+
+Reference-format details are reserved for guideline/consistency sections: MEDLINE abbreviations at refs24,43,56,59,62; DOI display differs at ref21 versus all other entries; page-range hyphens at refs16/61 versus dominant en dashes. DOI inclusion derives from EHJ examples rather than an unambiguous prose mandate, so record as an internal inconsistency, not an unconditional submission breach. Format-free initial submission waives reference-format requirements. Other substantive clinical/preclinical claims checked against their sources were supported at the stated scope.
+
+## Area 5 — Internal consistency (complete)
+
+Compared Abstract, main text, figures, captions, supplementary methods/workbook and primary outputs. Verified discrepancies are consolidated as N1 (Word/PDF IL6 sign), N2 (RA positive control), M1 (signal versus variant selection) and M2 (candidate versus tagging variant). Exposure directions, CAD totals, sample descriptions and main conclusions otherwise agree. Terminology/format conventions receive a separate exhaustive pass below. No new major inconsistency or important unresolved item.
+
+## Area 6 — Figures and tables (complete)
+
+Root visually inspected all five main figures and four supplementary figures at full-page resolution, compared labels/estimates with text and source outputs, and read the relevant plotting code. Supplementary workbook structure/result cells were checked in Area4; trial registry labels/IDs were checked against 38 ClinicalTrials.gov records plus the applicable European/ISRCTN records. No further trial identity/phase/indication error verified.
+
+**F1 — MAJOR: Figure3E hides existing confidence intervals.** The axis starts at1.0 and opaque bars cover the left whiskers. The existing three adjusted intervals extend below1 (lower bounds .9364,.8801,.8517), but the graphic does not display those crossings. Primary evidence: results/07d_mediation_waterfall/waterfall.tsv; figures/fig03e_mediation_waterfall.py:81,102–112. Extend the axis below .85 and draw the full existing whiskers above the bars. This is a display correction requiring no new calculation. EHJ norm: Not a reporting-norm issue.
+
+Technical/accessibility corrections for the guideline list: supplied raster line-art Figure1 is300ppi; Supplementary Figures1/3/4 are300/187/300ppi at embedded size, below600ppi line-art requirement(G31). Other main panels retain vectors; do not infer raster resolution from EMF headers. Source vector files exist for several affected figures. Use source vectors or regenerate at required resolution, without merely upsampling. The two-estimator forests distinguish IVW/weighted median using colour with the same diamond/line: Figure2C,3A–C,4F,5 and Supplementary Figure4; add a second cue, such as differing marker shapes(G34). No general aesthetic criticism warranted. Existing M1/M2/N2 corrections consolidated above.
+
+## Area 9 — Captions and cross-references (complete)
+
+All Figure1–5, Supplementary Figure1–4 and Supplementary Table1–15 citations map correctly. Table16 is reached through the main-text Supplementary Information referral and explicitly cited there; no missing-object criticism. Panel labels match figures. No broken/duplicated object numbering found.
+
+Definite caption corrections for guideline list: Figure2B and4C whiskers are beta±1.96SE in plotting code but are not identified as95% CIs; identify them. Figure2A/Supplementary Figure2 omit explanation of dashed genome-wide significance line(P=5×10⁻⁸) and identity of the LD reference variant(rs12239046); add one short sentence. Figure4E does not name the enrichment test/BH correction or27-protein input; add “Hypergeometric enrichment of27 proteins against2,922 tested proteins; Benjamini–Hochberg-adjusted P values.” The Supplement already gives the background and correction. Missing alt text under all main legends is a separate G33 rule. PC1 expansion and duplicate abbreviation definitions are consolidated under terminology. Repeating common/earlier-defined abbreviations in every legend is not imposed because EHJ explicitly exempts these.
+
+## Area 7 — Structure and narrative (complete)
+
+Read the title, Abstract, Introduction, first/last Discussion paragraphs and Results summary as a clinical-journal reader, against21 full EHJ MR main texts. The clinical question, unexpected direction, mechanistic interpretation and implications for trials are clear. Genetic-versus-treatment limitations are concentrated in the appropriate Discussion material. No additional major narrative gap, conspicuous underselling or unnecessary technical barrier verified. R1 is the specific wording correction needed, already recorded; no optional rewriting proposed.
+
+## Area 11 — Declarations and end matter (complete)
+
+Data Availability, Disclosure of Interest, Acknowledgements and ethics/consent/Helsinki statements are present. Root checked public GitHub access by unauthenticated HTML and API(HTTP200); source/access routes are identified in Tables1–4 and the text. Source-link verification is complete:40 cells/37 routes checked; all30 GCST accession/phenotype/PMID mappings matched official metadata. No meaningful wrong destination or mapping verified. Some EBI file requests timed out, but the datasets were correctly identified; this is an access limitation, not a manuscript finding. No separate manuscript Author Contributions heading required by EHJ; only3/21 benchmark papers have one, versus16/21 standalone data statements and21/21 COI statements. Submission-system forms/CRediT/attestations cannot be inferred missing from this document. No verified end-matter correction at this point.
+
+## Area 8 — Terminology and manuscript conventions (complete)
+
+Root checked the abbreviation locations in the original text and workbook, mathematical notation in the math-aware extraction/rendering, and relevant run formatting with inherited styles. Detailed verified inventory is included under Area13 below to avoid repeating fixes. Nonstandard first-use problems are GWAS, LD, SNP, ASC, InSIDE, eQTL and FCAS. PC1 needs “first” in its expansion. No general abbreviation list or arbitrary abbreviation limit is imposed. Common clinical/statistical abbreviations and proper study/software names are not automatically treated as nonstandard. GlycA is explained in the main Introduction; this is adequate first-use context. No additional major terminology error.
+
+## Area 10 — Formatting and document integrity (complete)
+
+All32 PDF pages visually inspected, with figure pages examined at full size; DOCX run/paragraph/section/footer settings and math objects checked. No lost text, overlap, broken equation or corrupt figure verified. The recoverable PDF cross-reference warning is not a visible submission error.
+
+**D1 — MUST FIX/G19: page numbering restarts.** PDF physical pages28–32 (references) are numbered1–5 after page27. The second Word section explicitly has pgNumType start=1. Set numbering to continue from the previous section. Consecutive pagination is required even for format-free submission. EHJ norm: EHJ rule.
+
+**D2 — MUST FIX: orphaned declaration page.** PDFp14 contains only “Pre-registered Clinical Trial Number / Not applicable.” Reflow this short statement with the other declarations to remove the almost-empty standalone page. Root verified the layout visually. EHJ norm: Not a reporting-norm issue.
+
+Other formatting differences are consolidated under guideline compliance, explicitly subject to format-free initial-submission waiver: single-spaced/justified body, first-line indentation through style rather than one tab, continuous line numbering and absent reference-page line numbers, legends preceding references. No unsupported demand for a running title or separate author-contribution heading is made.
+
+## Area 12 — Dedicated typo pass (complete)
+
+Separate full-text read, all65 bibliography entries, all figure/caption text and461 distinct narrative/header/source/drug workbook strings checked; protein/ontology identifiers compared with primary outputs. Root verified every listed typo against the source paragraphs. No additional genuine typo found.
+
+All six below occur in both versions; all are MUST FIX and Not a reporting-norm issue:
+
+- Methods3.4/P039/PDFline155: “blood neutrophil count ,”→“blood neutrophil count,”.
+- Methods3.4/P039/PDFline162: “(prior.1 =1×10⁻⁴, prior.c =0.02.”→“(prior.1 =1×10⁻⁴, prior.c =0.02).”.
+- Methods3.9/P051/PDFline236: “Supplementary Information″.”→“Supplementary Information.”.
+- Methods3.11/P055/PDFline250: “on the28 of April2026”→“on28 April2026” (or28th, matching Supplement).
+- Results4.1/P059/PDFline267: “support coherent NLRP3-linked inflammatory signal”→“support a coherent NLRP3-linked inflammatory signal”.
+- Results4.5/P073/PDFline356: “after multiple-testing”→“after correction for multiple testing”.
+
+The separate version comparison anchored142 paragraphs/entries, including all65 references. N1 is the only substantive Word/PDF text difference found. Double space after citation28 belongs in consistency below. Full evidence: [codex_v2_typos_audit.md](/rds/user/nh608/hpc-work/trashtmp/codex_v2_typos_audit.md).
+
+## Area 13 — Dedicated consistency pass (complete)
+
+Root verified paragraph/cell locations, original workbook headers/font flags, relevant DOCX styles and figure labels. The following inventory is accepted after verification; severity MUST FIX and EHJ norm Not a reporting-norm issue unless a specific abbreviation rule is invoked. The final report groups each convention into one checkbox with all locations.
+
+## Certain abbreviation fixes
+
+1. **GWAS defined too late:** first main-text use P029, Methods 3.2; expansion appears only in P045, Methods 3.7, after many uses. Move “genome-wide association studies (GWAS)” to P029 and use GWAS alone in P045. This simultaneously fixes late definition and avoids a redundant later introduction.
+2. **LD used before definition:** P037 first says “LD-clumped”, then defines “linkage disequilibrium (LD)” later in the same sentence. Move the expansion to that first occurrence, e.g. “clumped for linkage disequilibrium (LD) … using … as the reference panel.”
+3. **SNP never expanded:** P033 “SNP–CAD association estimates”; Figure 2A/Supplementary Figure 2 colour keys use “Index SNP”; ST05!A1 is SNP. Define single-nucleotide polymorphism at the initial main-text occurrence, or use “variant–CAD” in the main text and define SNP where it first appears in the figure/table material.
+4. **ASC never expanded:** P020, Introduction para 2, “the adaptor ASC”. This is a nonstandard inflammasome abbreviation. Shortest main-text fix is “an adaptor protein”; if retaining ASC, expand it once (apoptosis-associated speck-like protein containing a caspase recruitment domain).
+5. **InSIDE never expanded:** P041, Methods 3.5. Short plain replacement: “its key independence assumption” in place of “its InSIDE assumption”, retaining the existing cited explanation. The technical expansion can be used in Supplement if wanted, but there is no need to add a paragraph.
+6. **IL1Ra defined again:** P072, Results 4.5, repeats “interleukin-1 receptor antagonist (IL1Ra)” after the first main-text definition in P037. Use IL1Ra in P072. The separate supplementary-methods definition P134 need not be treated as a breach merely for being repeated across files/sections intended to stand alone.
+7. **PC1 expansion incomplete:** P109, Figure 2 legend, “PC1, principal component” → “PC1, first principal component”.
+8. **pLOF defined twice within one legend:** P123, Supplementary Figure 3, first prose sentence and final abbreviation list. Keep one definition within that legend.
+9. **eQTL abbreviation not formally introduced:** first abbreviated use is ST01!A5 “NLRP3 eQTLs”; prose first abbreviated use is P127, Supplementary Methods 14.1. P031 previously writes out the full term but does not introduce the abbreviation. Spell it out in ST01!A5, and define “expression quantitative trait locus (eQTL)” in P127. This can be confined to Supplement.
+10. **FCAS undefined:** ST16!A9 “including FCAS”. Replace with “including familial cold autoinflammatory syndrome”.
+
+## Defined abbreviations that are not reused in their relevant text/table
+
+- Abstract P010: GlycA is introduced but not reused anywhere else in the Abstract. Remove “(GlycA)” there; the body should introduce it independently if retained there.
+- ST03!C4: GBMI introduced after the full consortium name, but not used elsewhere in the supplied text/tables. Delete the parenthetical abbreviation.
+- ST03!C15: T2DGGI introduced after the full consortium name, but not used elsewhere. Delete the parenthetical abbreviation.
+- ST16!A4, A6, A9, A10: ALS, COPD, CAPS and HFrEF are introduced but not reused in that table or elsewhere outside bibliographic titles. Delete those four parenthetical abbreviations. Do not delete full disease names.
+
+## Certain presentation and convention fixes
+
+### Gene italics
+
+Dominant prose convention: italic gene symbols, roman protein/activity-score names. The following clear gene uses are roman after inherited-style resolution:
+
+- P045, Methods 3.7: “cis-acting NLRP3 variants”.
+- P089, Discussion disease-indications paragraph: “variants at the NLRP3 locus”.
+- P119, Supplementary Figure 1 legend: “within ±150 kb of NLRP3” and “whole-blood NLRP3 expression”.
+- ST01!A5, “NLRP3 eQTLs”; ST05!H2,H7,H12,H17,H22,H27,H32,H37, “NLRP3 expression”. Italicise only the gene name, not the surrounding text.
+- Contents!B6, the first NLRP3 in “cis-NLRP3 instruments”; Contents!B11, “for NLRP3 and its neighbouring genes”.
+- ST11!A2:A4, the IL1RN gene symbol in “cis-IL1RN / IL1Ra activity score”; keep IL1Ra roman.
+
+Do not flag P037, P075, P079 or TET2/DNMT3A in P082: inherited Emphasis correctly supplies italics. Do not italicise NLRP3 when it denotes the protein, inhibition, inflammasome or activity score. P071 “driven by NLRP3 itself” could refer to the protein and is not counted as a certain error.
+
+### Statistical notation
+
+- **Italic P in prose:** dominant form is italic. Deviations: P045 null-variant threshold; P123 “P values”; P127 both P < 1×10⁻³ specificity thresholds. Italicise these four occurrences. Math-object P in P077/P113/P127 already renders italic: do not flag it from raw XML.
+- **P capitalization in figures:** dominant figure symbol is uppercase P. Figure 4A's three comparison annotations and Supplementary Figure 3's twelve comparison annotations use lowercase p. Change the symbol only; no numerical change is implied.
+- **Italic r:** P119 plain-text r²<0.1 and P127 “provided r² was at least 0.9” have roman r. Match the italic r used elsewhere. The other apparent plain “r2” strings in DOCX are either real superscripts or math objects and render correctly.
+- **Superscript2 in workbook:** ST14!A2:A13 uses literal baseline “r2”; use r² in all twelve cells.
+- **Operator spacing in ordinary prose:** use P < and r² <, matching the dominant form. P037 has “P<5×10⁻⁸”; P119 has “r²<0.1”. P033 has three “n=” sample sizes, whereas P059 uses “n =”. Math-object relation spacing in P077/P113/P121/P127 is typeset correctly and is not an error.
+- **P value hyphen:** prose uses “P value(s)”; P127 alone has “P-value” in “lowest CRP association P-value”. Remove that hyphen. Compact graph labels may use a different convention without being a separate error.
+- **CI separators in running text:** all main-text intervals use “to”; Abstract P013 uses en dashes in its two CIs. Use the same separator for those two running-text intervals. Compact table/forest-plot interval punctuation is not counted as a breach.
+- **Odds-ratio precision in running text:** two decimal places dominate. P068 uses three decimals for the SBP, ApoB and T2D indirect ORs and their CIs, and for the residual direct OR while its CI has two decimals. Standardise those four estimates/three indirect intervals to the selected precision; two decimals matches the Abstract and remaining text. This is a formatting inconsistency, not a numerical discrepancy. Do not round a small nonzero continuous-effect CI boundary to zero merely to force two decimals.
+
+### Citation and reference style
+
+- Citation superscripts consistently precede sentence punctuation with no preceding space. P051 “Cosson et al. 39” has an extra space before superscript 39; remove it.
+- Bibliography page ranges predominantly use en dashes. References 16 (P161, 1198-1213.e14) and 61 (P206, 1415-1429.e19) use hyphens; use en dashes. Reference-title spelling/capitalisation was not treated as manuscript house style.
+- P041 has two spaces after the MendelianRandomization citation and before “(version 0.10.0)”; reduce to one.
+
+### Capitalisation and naming
+
+- **Subheadings:** sentence case dominates the numbered Methods subheadings. P047 “Predicted Loss-of-Function Analysis” and P050 “Predicted Gain-of-Function Analysis” use title case; convert the ordinary words to sentence case.
+- **Neutrophil label:** “Neutrophil count” dominates labels. Supplementary Figure 1 alone says “Neutrophil Count”; lowercase Count.
+- **Cytokine protein labels:** use the protein forms IL-1β, IL-18, IL-6 matching Figure 2C and the text. ST06!B8:B9 says IL1B; B10:B11 says IL18; B12:B13 says IL6. These outcome labels describe measured proteins. Retain genuine assay IDs/gene-symbol identifiers in ST12/ST13.
+- **ID abbreviation:** ST12!A1 “Protein Id” → “Protein ID”, matching “Term ID” and “Trial ID(s)” elsewhere.
+- **Workbook column-heading case:** sentence case is dominant, but these ordinary words are title-cased: ST01!B1,C1,D1; ST02!A1,B1,C1,D1; ST03!A1,B1,C1,D1; ST04!A1,B1,C1,D1; ST06!C1; ST07!D1; ST08!C1; ST11!C1; ST12!B1,C1,D1,H1,I1,J1,K1,N1,O1; ST13!G1; ST14!C1; ST15!C1. Lowercase noninitial ordinary words (Author, Consortium, Size, Outcomes, Number, Risk Factors, Instruments, Name, Beta, Median, Intercept, Genes), retaining actual acronyms/proper names.
+- **Workbook trait-label case:** ST01!A4 “Glycoprotein Acetyl concentration” capitalises Acetyl; ST04!A11 “Body Mass Index (BMI)” capitalises Mass/Index. Other analogous trait labels use sentence case. Separately verify the preferred full GlycA name in the terminology pass.
+- **Weighted median hyphen:** the method name is “weighted median” throughout prose; P113 alone uses “weighted-median analysis”. Remove the hyphen there.
+- **Trial phase notation:** Arabic phase numbers dominate the prose (phase 3 and phase 2a) and ST16. P144 alone says “Phase II”; use “phase 2”.
+
+
+### Root additions and decisions
+
+- **Heading case:** sentence case dominates Methods/Results subheadings. At top level, four multiword headings use title case and two sentence case; do not incorrectly claim a sentence-case majority at that level. To harmonise the document's headings, use sentence case in3.8,3.9,10 “Ethical Approval”,11 “Pre-registered Clinical Trial Number”,13 “Supplementary Data”, and the unnumbered “Supplementary Information”. Add14 to the latter to match14.1–14.4, unless separating supplementary files removes this numbering.
+- **Spelling:** Oxford English is otherwise consistent. For same-root consistency, IntroductionP022 “randomised”→“randomized” to match12 occurrences of randomization outside reference titles. Both are British variants; this is not an American-English error. Retain quoted/reference-title spelling and source ontology identifiers.
+- **Hyphenation:** ST04!A2 “Low density lipoprotein cholesterol levels”→“Low-density…” to match IntroductionP019. “Whole exome” occurs only once outside reference titles and is not a mixed convention. Do not invent one.
+- **DOI display:** reference21 alone includes a DOI;1–20 and22–65 omit theirs. Standardise using available DOIs, consistent with EHJ examples. This is an internal inconsistency; the examples are not an unambiguous prose mandate.
+- **Gene symbols in graphs:** roman gene-symbol labels are used as graph identifiers; the main source-track format alone is not treated as a mandatory scientific error. Clear gene-use prose/cell deviations above are accepted. Protein/assay identifiers in enrichment data are retained.
+- **Readability:** occasional full disease names after definition, particularly the first Discussion summary, serve clinical readability and are not flagged as unexplained inconsistencies.
+- **Precision:** mixed three-decimal mediation ORs versus two-decimal ORs elsewhere is a real presentation difference. Standardise reported OR precision without interpreting rounding as a new numerical discrepancy.
+- **GuidelineG22:** Results4.5/P073 “higher levels of7”→“higher levels of seven”. Counts in structured tables, phase/trait names and mathematical quantities are not mechanically spelled out.
+
+No important unresolved terminology, typo or convention question remains. Direct original-file verification took precedence over extraction artefacts and agent suggestions; borderline expansions for TNF, PD-1 and common statistical/clinical abbreviations were not promoted into findings.
+
+## Completion of the EHJ compliance pass
+
+All72 checklist groups now have an assessment/evidence entry, including conditional and nonapplicable rules. Source: [completed checklist](/rds/user/nh608/hpc-work/trashtmp/ehj_author_guidelines_checklist.md). The final compliance list will consolidate overlapping rules, especially missing graphical abstract and alt text, and qualify format-free initial-submission exceptions.
+
+Additional confirmed items: keywords absent; structured graphical abstract/Key Question/Key Finding/Take-home Message absent from the supplied package; main-figure alt text absent. For G50, replace/add one sentence in Methods3.5: “MR tests were two-sided, with nominal significance at P <0.05.” Existing multiplicity descriptions remain applicable. Do not say every test was two-sided, because enrichment tests are directional.
+
+G28 sample-size pointers missing in Figure2A–B and SupplementaryFigure2(sourceTable1); Figure4C(source samples for IL1RN expression and blood traits); Figure4F and SupplementaryFigure4(shared CAD samples inFigure3A). Other forest panels already show sample sizes and do not need duplicated prose. G38: original supplementary sheets all use general/default alignment rather than centred columns, a format-only correction. No colour/shading found in the workbook.
+
+G34 root independently recalculated contrast ratios from the specified source colours. Small #8A8A8A text on white is3.452:1 (below4.5) in Figure2C sampleNs,4D sampleNs,4F instrumentNs and SupplementaryFigure4 section headings; darken to#767676 or darker. Informative marks below3:1: green neutrophil point/CIs in2B/4C(#7CAE00,2.654); zero lines2B/4C(#A9A9A9,2.350); gold instrument rings2A/Sup2(#DAA520,2.238); Sup2 significance line(#999999,2.849). Decorative separators are not findings. The separate colour-only estimator cue is already recorded. Full source lines and primary guideline links are in [figure audit](/rds/user/nh608/hpc-work/trashtmp/codex_v2_figures_audit.md).
+
+## Area 14 — Final reviewer-style pass (complete)
+
+Reread the title, full Abstract, study question, key figures, first/last Discussion paragraphs, clinical-context comparisons and Limitations. No new critical scientific error or major narrative weakness was verified. The report retains the two incorrect text estimates, two analysis-description/label corrections, clipped confidence-interval display, two source-interpretation corrections, bibliography errors, document-integrity errors and complete verified typo/consistency/guideline lists. Findings that were only optional wording changes or unverified conjectures were dropped. All changes proposed for the main text are replacements or one short methods sentence; technical figure/source details stay in captions/Supplement.
+
+Final applicability decision: journal-format differences are explicitly distinguished from initial-submission blockers because EHJ permits format-free first submission. The complete checklist still records every difference. No assertion that a waived layout/reference-style difference invalidates an initial submission will be made. All current-rule items in the final report cite checklist IDs; error/convention items use “Not a reporting-norm issue”.
+
+## Audit closure
+
+Root reread the complete working log before drafting the final checklist and screened every retained issue against the instructed scope. No important unresolved scientific, numerical or citation-support item remains within that scope. Source-route evidence: [codex_v2_source_links.md](/rds/user/nh608/hpc-work/trashtmp/codex_v2_source_links.md). All original manuscript DOCX/PDF/XLSX SHA256 hashes match the hashes captured before the audit. Original analyses/results/figures were not modified. Supporting scratch evidence remains under the specified temporary directory.

@@ -185,6 +185,12 @@ select_instruments <- function(clump_r2) {
     }
     instruments <- unique(instruments)
 
+    # the gene-specificity rule of step 00 (helpers.R::eqtl_specificity())
+    specificity <- eqtl_specificity(instruments, READOUTS$NLRP3_expression$file,
+                                    NLRP3_ENSG, CHR,
+                                    n = READOUTS$NLRP3_expression$n)
+    instruments <- setdiff(instruments, specificity$excluded)
+
     effect_matrix <- function(field) {
         lapply(names(summary_stats), function(tn)
             summary_stats[[tn]] %>% filter(SNP %in% instruments) %>% mutate(trait = tn)) %>%
@@ -216,13 +222,16 @@ select_instruments <- function(clump_r2) {
     sc <- score %>% inner_join(summary_stats$eQTLs %>% select(SNP, beta_eqtl = beta), by = "SNP")
     if (cor(sc$beta, sc$beta_eqtl) < 0) score$beta <- -score$beta
 
-    score %>%
+    out <- score %>%
         mutate(pos_hg38 = as.integer(vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 2)),
                A1 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 3),
                A2 = vapply(strsplit(SNP, "_", fixed = TRUE), `[`, character(1), 4),
                pc1_var_explained = summary(pca)$importance[2, 1],
                r2_threshold = clump_r2) %>%
         arrange(pos_hg38)
+    # read straight off the return value: a later mutate() drops it
+    attr(out, "specificity") <- specificity$detail %>% mutate(r2_threshold = clump_r2)
+    out
 }
 
 ## ---- the CAD outcome: Aragam + MVP + FinnGen + All of Us ------------------------
@@ -306,9 +315,10 @@ mr_for <- function(meta, label, extra = list()) {
 }
 
 ## ---- A. the r2 sweep ------------------------------------------------------------
-sweep_rows <- list(); sweep_inst <- list()
+sweep_rows <- list(); sweep_inst <- list(); sweep_spec <- list()
 for (r2 in R2_GRID) {
     ex <- select_instruments(r2)
+    sweep_spec[[length(sweep_spec) + 1]] <- attr(ex, "specificity")
     cm <- cad_meta_for(ex)
     res <- mr_for(cm$meta, sprintf("r2 < %.1f", r2),
                   extra = list(r2_threshold = r2,
@@ -320,14 +330,16 @@ for (r2 in R2_GRID) {
                                n_allofus = unname(cm$coverage["All of Us"])))
     sweep_rows[[length(sweep_rows) + 1]] <- res
     sweep_inst[[length(sweep_inst) + 1]] <- ex %>% mutate(r2_threshold = r2)
-    message(sprintf("  r2 < %.1f : %2d selected, %2d in the meta (AoU covers %2d) | IVW OR %.3f (%.3f, %.3f) p %.3g | Egger int p %.3g",
-                    r2, nrow(ex), nrow(cm$meta), unname(cm$coverage["All of Us"]),
+    message(sprintf("  r2 < %.1f : %2d selected (%d excluded for specificity), %2d in the meta (AoU covers %2d) | IVW OR %.3f (%.3f, %.3f) p %.3g | Egger int p %.3g",
+                    r2, nrow(ex), length(unique(with(sweep_spec[[length(sweep_spec)]], SNP[excluded]))),
+                    nrow(cm$meta), unname(cm$coverage["All of Us"]),
                     exp(res$estimate[1]), exp(res$ci_lower[1]), exp(res$ci_upper[1]),
                     res$p[1], res$egger_intercept_p[1]))
 }
 sweep <- bind_rows(sweep_rows)
 write_tsv(sweep, file.path(out_dir, "r2_sweep.tsv"))
 write_tsv(bind_rows(sweep_inst), file.path(out_dir, "r2_sweep_instruments.tsv"))
+write_tsv(bind_rows(sweep_spec), file.path(out_dir, "r2_sweep_specificity.tsv"))
 
 ## ---- the r2 = 0.1 selection must match step 00 -----------------------------------
 # If these ever diverge, this panel's anchor point no longer describes the

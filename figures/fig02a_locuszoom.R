@@ -174,6 +174,9 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
         index_snp = index_snp,
         size = pt_size,
         LD_scheme = LD_SCHEME,
+        # recombination comes from add_recomb_line() below, thin and grey
+        recomb_col = if (add_recomb) NA else "blue",
+        border = TRUE,
         ylab = expression(-log[10](P - value))
     ) +
         theme(
@@ -212,12 +215,12 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
                                    reverse = TRUE)) +
         ggtitle(title)
 
-    # Points sit on the axis rather than floating above it, with headroom left
-    # above the top hit so the legend and the tallest points are not crowded
-    # against the panel border.
-    y_scale <- which(vapply(locus_plot$scales$scales,
-                            function(s) "y" %in% s$aesthetics, logical(1)))
-    locus_plot$scales$scales[[y_scale]]$expand <- expansion(mult = c(0, 0.18))
+    # Recombination and the cM/Mb axis; the helper also sets the headroom above
+    # the top hit so the legend and the tallest points are not crowded against
+    # the panel border.
+    if (add_recomb) {
+        locus_plot <- add_recomb_line(locus_plot, locus_data)
+    }
 
     # Deviation 2: the instruments, ringed in gold. gg_scatter plots position in
     # Mb, so the layer has to be on the same scale.
@@ -228,8 +231,8 @@ locus_plot <- function(data, highlights = NULL, title = waiver(),
                    .y = .data[[locus_data$yvar]])
         locus_plot <- locus_plot +
             geom_point(data = hl, aes(x = .x, y = .y),
-                       inherit.aes = FALSE, shape = 21, size = pt_size + 0.15,
-                       colour = "#DAA520", fill = NA, stroke = 0.4)
+                       inherit.aes = FALSE, shape = 21, size = pt_size + 0.75,
+                       colour = "#DAA520", fill = NA, stroke = 0.5)
     }
 
     if (just_scatter) {

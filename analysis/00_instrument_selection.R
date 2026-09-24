@@ -390,6 +390,25 @@ if (length(need_proxy) > 0) {
 instruments <- unique(instruments)
 
 
+## ---- step 5b  gene specificity ---------------------------------------------------
+# An instrument must act on NLRP3, not on a neighbouring gene; the rule is in
+# helpers.R::eqtl_specificity() and its threshold in config.R.
+specificity <- eqtl_specificity(
+    instruments,
+    READOUTS$NLRP3_expression$file,
+    NLRP3_ENSG,
+    CHR,
+    n = READOUTS$NLRP3_expression$n
+)
+instruments <- setdiff(instruments, specificity$excluded)
+message(sprintf(
+    "  gene specificity: %d off-target association(s) at P < %g, %d variant(s) excluded",
+    nrow(specificity$detail),
+    EQTL_SPECIFICITY_P,
+    length(specificity$excluded)
+))
+
+
 ## ---- step 6  PCA ---------------------------------------------------------------
 effect_matrix <- function(field) {
     lapply(names(summary_stats), function(tn) {
@@ -520,6 +539,7 @@ out <- score %>%
 
 write_tsv(out, file.path(out_dir, "nlrp3_instruments.tsv"))
 write_tsv(proxy_log, file.path(out_dir, "nlrp3_proxy_replacements.tsv"))
+write_tsv(specificity$detail, file.path(out_dir, "nlrp3_specificity.tsv"))
 message("\nwrote ", file.path(out_dir, "nlrp3_instruments.tsv"))
 
 print(
