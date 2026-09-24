@@ -20,6 +20,10 @@ plink2_bin <- "/rds/user/nh608/hpc-work/software/plink2/plink2"
 gcta_bin <- "/rds/user/nh608/hpc-work/software/gcta/gcta-1.94.1"
 tabix_bin <- "/rds/user/nh608/hpc-work/software/micromamba/envs/sambcfenv/bin/tabix"
 
+# UCSC chain lifting a GRCh37 release onto GRCh38, the build of the LD panel
+# (also used by datasets/liftover_t2d_to_grch38.R).
+hg19_to_hg38_chain <- "/rds/user/nh608/hpc-work/software/UCSC_liftOver/hg19ToHg38.over.chain"
+
 # UKB-PPP plasma proteomics, access-controlled and kept outside this folder. One
 # bgzipped, tabix-indexed file per assay, plus a .lst manifest of assay IDs.
 ppp_dir <- paste0(
@@ -67,6 +71,11 @@ IL1RN_ENSG <- "ENSG00000136689"
 # variant is dropped if it is associated with expression of another gene at
 # this P, both before and after conditioning on that gene's lead eQTL.
 EQTL_SPECIFICITY_P <- 1e-3
+
+# LD proxy rule, for a variant missing from a readout (instrument selection) or
+# from an outcome release (step 12): INTERVAL r2 >= PROXY_R2 within PROXY_KB kb.
+PROXY_R2 <- 0.9
+PROXY_KB <- 50
 
 
 ## ---- instruments -------------------------------------------------------------
@@ -205,14 +214,6 @@ ppp_il1rn_assay <- file.path(ppp_dir, "IL1RN_P18510_OID20700_v1_Inflammation.bgz
 
 
 ## ---- disease and trait outcomes ----------------------------------------------
-# The INTERVAL proxy standing in for an instrument the deCODE pericarditis
-# release does not carry, with r signed against each variant's A1. The other
-# missing instrument, 1_247452478_A_G, has no proxy at r2 >= 0.9.
-PERICARDITIS_PROXIES <- tibble::tribble(
-    ~SNP              , ~proxy_pos , ~proxy_a1 , ~proxy_a2 , ~r        ,
-    "1_247438293_C_T" , 247442974 , "C"       , "T"       , -0.992093
-)
-
 # One entry per outcome: the three imaging traits first, then the disease
 # outcomes, in the order the results table uses. Step 08 reads `gout` and
 # `ra_ishigaki` from here too.
@@ -252,7 +253,7 @@ OUTCOMES <- list(
                       n_cases = 32519, n_controls = 2062805),
     # UK Biobank WGS, ICD-10 M17 gonarthrosis, non-Finnish European only
     # (REGENIE: a log-odds beta with its own SE). The release does not carry two
-    # of the eight instruments, so this is fitted on six.
+    # of the eight instruments; step 12 takes both from LD proxies.
     knee_oa = outcome_entry(GWAS_CATALOG, "Knee osteoarthritis",
                       "knee_osteoarthritis_GCST90474022.h.tsv.gz",
                       n_cases = 44190, n_controls = 414250),
@@ -269,8 +270,7 @@ OUTCOMES <- list(
                            oa_col = "Other_allele", # lower-case 'a' in the actual header
                            effect_col = "comb_Effect", se_source = "p",
                            ci_lower_col = NULL, ci_upper_col = NULL, eaf_col = NULL,
-                           p_col = "comb_Pval", proxies = PERICARDITIS_PROXIES,
-                           n_cases = 4894, n_controls = 1457822),
+                           p_col = "comb_Pval", n_cases = 4894, n_controls = 1457822),
     ra_ishigaki = outcome_entry(GWAS_CATALOG, "Rheumatoid arthritis",
                           "rheumatoid_arthritis_ishigaki_GCST90132223.h.tsv.gz",
                           n_cases = 22350, n_controls = 74823),

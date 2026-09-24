@@ -43,6 +43,24 @@ read_region <- function(cfg, chr, start, end) {
     mutate(df, pos = as.integer(pos))
 }
 
+# read_region() on GRCh38 whatever the release's build: a GRCh37 release is
+# lifted chromosome-wide with the UCSC chain, keeping, as
+# datasets/liftover_t2d_to_grch38.R does, only variants that map to exactly one
+# place on the same chromosome.
+read_region_grch38 <- function(cfg, chr, start, end) {
+    if (!identical(cfg$build, "GRCh37")) return(read_region(cfg, chr, start, end))
+    df <- read_region(cfg, chr, 1, Inf)
+    lifted <- rtracklayer::liftOver(
+        GenomicRanges::GRanges(paste0("chr", chr), IRanges::IRanges(df$pos, width = 1)),
+        rtracklayer::import.chain(hg19_to_hg38_chain))
+    one <- lengths(lifted) == 1
+    hit <- as.data.frame(unlist(lifted[one]))
+    same_chr <- hit$seqnames == paste0("chr", chr)
+    df <- df[one, ][same_chr, ]
+    df$pos <- hit$start[same_chr]
+    filter(df, pos >= start, pos <= end)
+}
+
 read_genome <- function(cfg) mutate(read_sumstats(cfg, p_as_text = TRUE), pos = as.integer(pos))
 
 # The variants of `want` (SNPid, chrom, pos) out of a genome-wide file. Joined on
@@ -197,6 +215,32 @@ get_high_ld_snps <- function(leads, reference, r2, kb) {
                           "--ld-window-kb", kb, "--threads", 4, "--out", out),
             stdout = FALSE)
     fread(paste0(out, ".vcor"), data.table = FALSE)
+}
+
+# LD proxies for the variants `snps` (one chromosome): every INTERVAL SNV within
+# PROXY_KB of one at r2 >= PROXY_R2, strongest first and nearest on a tie. r is
+# signed against each variant's A1, so sign(r) turns a proxy's effect onto the
+# original's A1.
+proxy_candidates <- function(snps) {
+    out <- tempfile()
+    writeLines(to_panel_id(snps), paste0(out, ".snps"))
+    pos <- as.integer(snp_field(snps, 2))
+    system2(plink2_bin, c("--bfile", ld_panel, "--chr", snp_field(snps[1], 1),
+                          "--from-bp", min(pos) - PROXY_KB * 1000L,
+                          "--to-bp", max(pos) + PROXY_KB * 1000L,
+                          "--r-unphased", "ref-based", "cols=chrom,pos,id,ref,alt",
+                          "--ld-snp-list", paste0(out, ".snps"),
+                          "--ld-window-r2", PROXY_R2, "--ld-window-kb", PROXY_KB,
+                          "--threads", 2, "--out", out), stdout = FALSE)
+    fread(paste0(out, ".vcor"), data.table = FALSE) %>%
+        transmute(SNP = from_panel_id(ID_A), proxy = from_panel_id(ID_B),
+                  # REF-based r onto A1: one sign flip per variant whose REF is its A2
+                  r = UNPHASED_R * ifelse(REF_A == snp_field(SNP, 3), 1, -1) *
+                      ifelse(REF_B == snp_field(proxy, 3), 1, -1),
+                  r2 = r^2,
+                  kb = abs(as.integer(snp_field(proxy, 2)) - as.integer(snp_field(SNP, 2))) / 1e3) %>%
+        filter(!proxy %in% snps, nchar(snp_field(proxy, 3)) == 1, nchar(snp_field(proxy, 4)) == 1) %>%
+        arrange(SNP, desc(r2), kb)
 }
 
 
@@ -368,12 +412,12 @@ select_instruments <- function(readouts, chr, start, end, r2 = 0.1) {
     }), use.names = FALSE)
 
     # An instrument missing from a readout is swapped for its best proxy at
-    # r2 >= 0.9 within 50 kb that all four carry; proxies within 0.05 of the best
-    # r2 count as tied, and the tie goes to the lowest CRP p-value.
+    # r2 >= PROXY_R2 within PROXY_KB that all four carry; proxies within 0.05 of
+    # the best r2 count as tied, and the tie goes to the lowest CRP p-value.
     need <- instruments[vapply(instruments, availability, 1) != 4]
     proxies <- tibble(original = character(), replacement = character(), r2 = numeric())
     if (length(need) > 0) {
-        hl <- get_high_ld_snps(need, ref, 0.9, 50)
+        hl <- get_high_ld_snps(need, ref, PROXY_R2, PROXY_KB)
         for (s in unique(hl$ID_A)) {
             cand <- hl[hl$ID_A == s, ]
             cand <- cand[vapply(cand$ID_B, availability, 1) == 4, ]
