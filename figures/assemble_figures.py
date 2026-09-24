@@ -6,22 +6,20 @@
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUT_DIR = SCRIPT_DIR.parent / "figures_out"
 
-# Hand-drawn panels live in figures/assets/, NOT in figures_out/. figures_out
-# is generated output - anything there can be deleted and rebuilt from a
-# script, and a drawn illustration cannot.
+# Hand-drawn panels live in figures/assets/: figures_out/ holds only what a
+# script can rebuild.
 ASSET_DIR = SCRIPT_DIR / "assets"
+ASSETS = {"Fig3D_mediation_diagram"}
 
-# Page geometry, in mm. These are the defaults; STYLE overrides them per figure.
-A4_W = 210.0
-PT = 25.4 / 72
+A4_W = 210.0  # mm
 
+# Page geometry, in mm; STYLE overrides the defaults per figure.
 STYLE_DEFAULT = dict(
     margin=4.0,        # page edge to content
     gap_x=2.0,         # between panels in a row
@@ -43,7 +41,8 @@ STYLE = {
                  letter_pt=11, halign="centre", valign="middle", fit="crop"),
 }
 
-# Each figure is a list of ROWS; each row is a list of CELLS side by side.
+# Each figure is a list of rows; each row a list of cells side by side; a cell
+# a panel or a list of panels stacked. A panel may carry a size multiplier.
 FIGURES = {
     "Fig2": [
         [("A", "Fig2A_NLRP3_locuszoom"), ("C", "Fig2C_validation_forest")],
@@ -62,133 +61,73 @@ FIGURES = {
     ],
 }
 
-# Drawn illustrations, kept in figures/assets/. No script can make these.
-ASSETS = {"Fig3D_mediation_diagram"}
-
 
 def panel_pdf(stem):
-    """Where a panel's PDF lives: generated output, or a drawn asset."""
-    pdf = ASSET_DIR / f"{stem}.pdf" if stem in ASSETS else OUT_DIR / f"{stem}.pdf"
-    return pdf
+    return (ASSET_DIR if stem in ASSETS else OUT_DIR) / f"{stem}.pdf"
 
 
 def page_size_mm(stem):
-    """A panel's true page size, read from the PDF rather than assumed."""
-    pdf = panel_pdf(stem)
-    # stdout=PIPE rather than capture_output=: the only python on this machine
-    # carrying matplotlib is /usr/bin/python3 (3.6), and capture_output= is
-    # 3.7+.
-    info = subprocess.run(["pdfinfo", str(pdf)], stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, check=True,
-                          universal_newlines=True).stdout
-    m = re.search(r"Page size:\s+([\d.]+) x ([\d.]+) pts", info)
-    w, h = m.groups()
+    """A panel's page size, read from the PDF."""
+    # stdout=PIPE, not capture_output=: /usr/bin/python3 is 3.6
+    info = subprocess.run(["pdfinfo", str(panel_pdf(stem))], stdout=subprocess.PIPE,
+                          check=True, universal_newlines=True).stdout
+    w, h = re.search(r"Page size:\s+([\d.]+) x ([\d.]+) pts", info).groups()
     return float(w) / 72 * 25.4, float(h) / 72 * 25.4
-
-
-def ink_box_mm(stem):
-    """The panel's INK bounding box, in mm from its page's bottom-left."""
-    out = subprocess.run(["gs", "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=bbox",
-                          str(panel_pdf(stem))], stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT,
-                         universal_newlines=True).stdout
-    m = re.search(r"%%HiResBoundingBox:\s+([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)", out)
-    return [float(v) * PT for v in m.groups()]
 
 
 def build(name, rows):
     st = dict(STYLE_DEFAULT, **STYLE.get(name, {}))
-    margin, gap_x, gap_y = st["margin"], st["gap_x"], st["gap_y"]
-    letter = st["letter"]
+    margin, gap_x, gap_y, letter = st["margin"], st["gap_x"], st["gap_y"], st["letter"]
     gy = gap_y if st["gap_stack"] is None else st["gap_stack"]
 
-    # A cell is a vertical stack; a bare (letter, stem) pair is a stack of one.
-    # A panel may carry a third element, a SIZE MULTIPLIER.
+    # every cell as a stack of (letter, stem, multiplier)
     rows = [[[(t + (1.0,))[:3] for t in (cell if isinstance(cell, list) else [cell])]
              for cell in row] for row in rows]
+    size = {}
+    for row in rows:
+        for cell in row:
+            for _, stem, mult in cell:
+                w, h = page_size_mm(stem)
+                size[stem] = (w * mult, h * mult)
 
-    size = {stem: page_size_mm(stem)
-            for row in rows for cell in row for _, stem, _ in cell}
-    mult = {stem: m for row in rows for cell in row for _, stem, m in cell}
-    print(f"{name}:")
-    for stem, (w, h) in size.items():
-        extra = f"  x{mult[stem]:.2f}" if mult[stem] != 1.0 else ""
-        print(f"    {stem:34s} {w:6.1f} x {h:6.1f} mm{extra}")
-    size = {k: (w * mult[k], h * mult[k]) for k, (w, h) in size.items()}
-
-    # A cell is as wide as its widest panel and as tall as its panels plus the
-    # letter band each one carries; a row is as wide as its cells plus the gaps.
+    # a cell is as wide as its widest panel and as tall as its panels plus
+    # the letter band each carries
     def cell_w(cell):
         return max(size[s][0] for _, s, _ in cell)
 
     def cell_h(cell):
         return sum(letter + size[s][1] for _, s, _ in cell) + gy * (len(cell) - 1)
 
-    # COLUMNS. Without this each row is packed independently, so the second
-    # row's cells start wherever the first one happens to end and nothing lines
-    # up down the page.
     if st["columns"]:
         col = [max(cell_w(r[j]) for r in rows) for j in range(len(rows[0]))]
         widths = [list(col) for _ in rows]
     else:
         widths = [[cell_w(c) for c in row] for row in rows]
-
     row_w = [sum(w) + gap_x * (len(w) - 1) for w in widths]
-    widest = max(row_w)
 
     if st["fit"] == "scale":
-        # Rule 2: one scale, shrink-only, set by the widest row.
+        # one scale, shrink-only, set by the widest row
+        widest = max(row_w)
         scale = min(1.0, (A4_W - 2 * margin) / widest)
         page_w = widest * scale + 2 * margin
     else:
-        # fit="crop": panels at true size on an A4-wide page, with any overflow
-        # split between the two edges - and it may only eat whitespace.
+        # "crop": panels at true size on an A4-wide page, any overflow split
+        # between the two edges (it falls on whitespace)
         scale, page_w = 1.0, A4_W
-        for row, rw in zip(rows, row_w):
-            over = (rw - page_w) / 2
-            if over <= 0:
-                continue
-            left, right = row[0][0][1], row[-1][-1][1]
-            for stem, free in ((left, ink_box_mm(left)[0]),
-                               (right, size[right][0] - ink_box_mm(right)[2])):
-                print(f"    {stem:34s} {free:5.2f} mm of whitespace at the "
-                      f"cropped edge ({over:.2f} mm is cut)")
 
     row_h = [max(cell_h(c) for c in row) * scale for row in rows]
     page_h = 2 * margin + sum(row_h) + gap_y * (len(rows) - 1)
-
-    print(f"    -> page {page_w:.1f} x {page_h:.1f} mm, scale {scale:.4f}")
-    # THE READABILITY CHECK. Every panel is authored at the Figure 2C type scale
-    # (8 pt body), so the scale factor IS the final point size: shrink to 0.74
-    # and 8 pt prints at 5.9 pt. Report it rather than let it pass unnoticed.
-    if scale < 0.995:
-        print(f"    NOTE: 8.0 pt body text will print at {8.0 * scale:.1f} pt "
-              f"({(1 - scale) * 100:.0f}% smaller than Figure 2C).")
-    for row, rh in zip(rows, row_h):
-        heights = [cell_h(c) * scale for c in row]
-        if len(row) > 1 and max(heights) - min(heights) > 2:
-            names = ", ".join(s for c in row for _, s, _ in c)
-            print(f"    NOTE: cells differ in height by "
-                  f"{max(heights) - min(heights):.1f} mm ({names}); the shorter "
-                  f"one will sit above white space.")
 
     body, y_row = [], page_h - margin
     for row, rw, rh, cols in zip(rows, row_w, row_h, widths):
         x = margin if st["halign"] == "left" else (page_w - rw * scale) / 2
         for cell, cw in zip(row, cols):
             ch = cell_h(cell) * scale
-            # A short cell beside a tall one is centred when the style asks for
-            # it, so it does not sit on top of its own slack.
             y = y_row if st["valign"] == "top" else y_row - (rh - ch) / 2
             for lt, stem, _m in cell:
                 w, h = (v * scale for v in size[stem])
-                # A panel narrower than its column is centred in it when the
-                # style asks - a drawn illustration stranded at the left edge
-                # of a column sized by a wide forest reads as a mistake.
                 indent = (cw * scale - w) / 2 if st["cell_halign"] == "centre" else 0.0
-                # The letter follows its column's left edge but never leaves the
-                # page: a cropped row starts left of the margin and would take
-                # its letter with it, and a letter is ink where an edge is not.
+                # the letter follows its column's left edge but never leaves the page
                 body.append(f"\\put({max(x, margin):.3f},{y - st['letter_drop']:.3f})"
                             f"{{\\fontsize{{{st['letter_pt']}}}{{{st['letter_pt']}}}"
                             f"\\selectfont\\bfseries {lt}}}")
@@ -210,26 +149,13 @@ def build(name, rows):
            + "\n".join(body)
            + f"\n\\end{{picture}}\n\\end{{document}}\n")
 
-    # Compile somewhere disposable; xelatex scatters .aux and .log beside the
-    # source and figures_out/ is for figures.
+    # compiled somewhere disposable, since xelatex scatters .aux and .log files
     with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        (tmp / f"{name}.tex").write_text(tex)
-        r = subprocess.run(["xelatex", "-interaction=nonstopmode", f"{name}.tex"],
-                           cwd=str(tmp), stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, universal_newlines=True)
-        built = tmp / f"{name}.pdf"
-        out_pdf = OUT_DIR / f"{name}_combined.pdf"
-        shutil.copy(built, out_pdf)
-
-    print(f"    wrote {out_pdf}  ({out_pdf.stat().st_size / 1e3:.0f} KB)")
+        (Path(tmp) / f"{name}.tex").write_text(tex)
+        subprocess.run(["xelatex", "-interaction=nonstopmode", f"{name}.tex"], cwd=tmp,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        shutil.copy(Path(tmp) / f"{name}.pdf", OUT_DIR / f"{name}_combined.pdf")
 
 
-def main():
-    wanted = sys.argv[1:] or list(FIGURES)
-    for name in wanted:
-        build(name, FIGURES[name])
-
-
-if __name__ == "__main__":
-    main()
+for name, rows in FIGURES.items():
+    build(name, rows)

@@ -6,17 +6,8 @@
 suppressPackageStartupMessages({
     library(tidyverse)
     library(patchwork)
-    library(here)
 })
-
-FONT_BODY <- "Open Sans Semibold"
-cairo_pdf_font <- function(filename, ...) cairo_pdf(filename, ..., family = FONT_BODY)
-
-analysis_dir <- here::here()
-in_file <- file.path(analysis_dir, "results", "00_instrument_selection",
-                     "nlrp3_signal_components.tsv")
-out_dir <- file.path(analysis_dir, "figures_out")
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+source(here::here("figures", "style.R"))
 
 # Same four colours Figure 2B gives these readouts.
 COLOURS <- c(eQTLs = "#1B9E77", CRP = "#4C72B0",
@@ -27,7 +18,8 @@ LABELS <- c(eQTLs  = "italic('NLRP3')~'expression'",
             neutro = "'Neutrophil Count'",
             GlycA  = "'GlycA'")
 
-comp <- read_tsv(in_file, show_col_types = FALSE) %>%
+comp <- read_tsv(here::here("results", "00_instrument_selection", "nlrp3_signal_components.tsv"),
+                 show_col_types = FALSE) %>%
     select(all_of(names(COLOURS))) %>%
     mutate(across(everything(), as.integer))
 
@@ -132,10 +124,5 @@ combined <- (plot_spacer() / p_sets + plot_layout(heights = c(0.42, 0.58))) |
     (p_top / p_dots + plot_layout(heights = c(0.42, 0.58)))
 combined <- combined + plot_layout(widths = c(0.48, 0.52))
 
-ggsave(file.path(out_dir, "SupFig1_variant_overlap.pdf"), combined,
+ggsave(file.path(figures_dir, "SupFig1_variant_overlap.pdf"), combined,
        width = 132, height = 109, units = "mm", device = cairo_pdf_font)
-
-message("components: ", nrow(comp), " | set sizes: ",
-        paste(sizes$trait, sizes$n, sep = "=", collapse = ", "))
-message("intersections: ", paste(inter$n, collapse = ", "))
-message("Done -> ", file.path(out_dir, "SupFig1_variant_overlap.pdf"))

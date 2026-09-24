@@ -6,46 +6,26 @@
 
 import csv
 import math
-from pathlib import Path
 
-from style import apply_style
+from style import apply_style, minor_ticks, legend_entry, RESULTS, OUT_DIR, IVW_C, WM_C
 apply_style()
 import matplotlib.pyplot as plt
 
-from forest_ticks import minor_ticks
+FS_BODY, FS_SMALL, FS_HEADER, FS_TICK, FS_XLAB = 8.0, 7.0, 8.0, 7.6, 7.6
+METHODS = [("ivw", IVW_C), ("wm", WM_C)]
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-ANALYSIS_DIR = SCRIPT_DIR.parent
-IN_FILE = ANALYSIS_DIR / "results" / "12_mr_indications" / \
-    "additional_indications_mr_results.tsv"
-OUT_DIR = ANALYSIS_DIR / "figures_out"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-FS_BODY, FS_SMALL, FS_HEADER, FS_TICK, FS_GROUP, FS_XLAB = 8.0, 7.0, 8.0, 7.6, 8.0, 7.6
-IVW_C, WM_C = "#C0392B", "#2C6FB5"
-METHODS = [("IVW (LD-corrected)", "ivw", IVW_C), ("Weighted median", "wm", WM_C)]
-
-# key in the results file -> (display name, N)
+# outcome in the results file -> (display name, N)
 SD_BLOCK = [("Coronary artery calcification (Agatston, CT)",
              "Coronary artery calcification", 26_000)]
 OR_BLOCK = [("Coronary plaque burden (SIS, CTA)", "Coronary plaque burden", 24_811),
             ("Carotid plaque (ultrasound)", "Carotid plaque", 26_807)]
 
-
-def load():
-    rows = {}
-    with open(IN_FILE) as fh:
-        for r in csv.DictReader(fh, delimiter="\t"):
-            slot = next((s for m, s, _ in METHODS if r["method"] == m), None)
-            if slot is None:
-                continue
-            rows.setdefault(r["outcome"], {})[slot] = (
-                float(r["estimate"]), float(r["ci_lower"]),
-                float(r["ci_upper"]), float(r["p"]))
-    return rows
-
-
-ROWS = load()
+ROWS = {}
+with open(RESULTS / "12_mr_indications" / "additional_indications_mr_results.tsv") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        slot = "ivw" if r["method"] == "IVW (LD-corrected)" else "wm"
+        ROWS.setdefault(r["outcome"], {})[slot] = (
+            float(r["estimate"]), float(r["ci_lower"]), float(r["ci_upper"]), float(r["p"]))
 
 
 def fmt_p(p):
@@ -55,50 +35,37 @@ def fmt_p(p):
 FIG_W_MM, FIG_H_MM = 134.8, 64.0
 fig = plt.figure(figsize=(FIG_W_MM / 25.4, FIG_H_MM / 25.4))
 
-# COLUMN GRID, sized to THIS panel's own content rather than shared with Figure
-# 3A. Measured at 8 pt: Trait needs 38.6 mm ("Coronary artery calcification"),
-# N only 8.9 ("24,811"), Effect 21.1, P 7.3.
+# Column grid, measured at 8 pt from each column's widest string.
 X_TRAIT, X_N, X_EST, X_P = 0.0111, 0.3159, 0.7540, 0.9430
 FOREST_L, FOREST_W = 0.4004, 0.3413
 
-# Vertical anchors, set from what the content needs at 64 mm, working down from
-# the header rule: a row is 8 mm (two method lines) and each axis adds about
-# 3 mm of spine and ticks.
-ROW_SPACING = 0.125          # figure fraction between traits = 8 mm
+# Vertical anchors: a row is 8 mm (two method lines).
+ROW_SPACING = 0.125          # figure fraction between traits
 DY = 0.026                   # half-separation of the two method lines
 Y_CAC = 0.835                # the single calcification row
 Y_SIS = 0.465                # first row of the plaque block
 
 # --- column headers ----------------------------------------------------------
-fig.text(X_TRAIT, 0.955, "Trait", fontsize=FS_HEADER, fontweight="bold", va="center")
-# "Sample size", not "N": every row here is a single cohort count, and the
-# other panels spell the same column out ("Cases / Controls" in A, "Sample
-# size or Cases / Controls" in C).
-fig.text(X_N, 0.955, "Sample size", fontsize=FS_HEADER, fontweight="bold",
-         va="center")
-# "β or POR", not "Effect".
-fig.text(X_EST, 0.955, "β or POR (95% CI)", fontsize=FS_HEADER,
-         fontweight="bold", va="center")
-fig.text(X_P, 0.955, "P", fontsize=FS_HEADER, fontweight="bold", va="center")
+for x, text in ((X_TRAIT, "Trait"), (X_N, "Sample size"), (X_EST, "β or POR (95% CI)"), (X_P, "P")):
+    fig.text(x, 0.955, text, fontsize=FS_HEADER, fontweight="bold", va="center")
 fig.add_artist(plt.Line2D([X_TRAIT, 0.985], [0.925, 0.925], color="black",
                           linewidth=0.7, transform=fig.transFigure))
 
 
-def text_block(key, label, n, ycentre, transform):
+def text_block(key, label, n, ycentre, fmt):
     """Trait name, N, and one estimate + P per method."""
     fig.text(X_TRAIT, ycentre, label, fontsize=FS_BODY, va="center")
     fig.text(X_N, ycentre, f"{n:,}", fontsize=FS_BODY, va="center")
-    for (_, slot, _), off in zip(METHODS, (DY, -DY)):
+    for (slot, _), off in zip(METHODS, (DY, -DY)):
         e, lo, hi, p = ROWS[key][slot]
-        fig.text(X_EST, ycentre + off, transform(e, lo, hi), fontsize=FS_BODY, va="center")
+        fig.text(X_EST, ycentre + off, fmt(e, lo, hi), fontsize=FS_BODY, va="center")
         fig.text(X_P, ycentre + off, fmt_p(p), fontsize=FS_BODY, va="center")
 
 
 def draw_axis(keys, y_first, logscale, null, xlim, ticks, minor_step, xlabel):
-    """One forest axis. Data y equals figure y, so rows align by construction."""
+    """One forest axis, placed so its rows sit on their text."""
     n = len(keys)
-    ax = fig.add_axes([FOREST_L,
-                       (y_first - (n - 1) * ROW_SPACING) - ROW_SPACING / 2,
+    ax = fig.add_axes([FOREST_L, (y_first - (n - 1) * ROW_SPACING) - ROW_SPACING / 2,
                        FOREST_W, n * ROW_SPACING])
     ax.set_xlim(*xlim)
     if logscale:
@@ -108,15 +75,14 @@ def draw_axis(keys, y_first, logscale, null, xlim, ticks, minor_step, xlabel):
     ax.axvline(null, color="black", linestyle="--", linewidth=0.6, dashes=(3, 2))
     dy_data = DY / ROW_SPACING
     for i, key in enumerate(keys):
-        for (_, slot, col), off in zip(METHODS, (-dy_data, dy_data)):
+        for (slot, col), off in zip(METHODS, (-dy_data, dy_data)):
             e, lo, hi, _p = ROWS[key][slot]
             if logscale:
                 e, lo, hi = map(math.exp, (e, lo, hi))
             ax.plot([lo, hi], [i + off] * 2, color=col, linewidth=1.0,
                     solid_capstyle="butt", zorder=2)
-            ax.plot([e], [i + off], marker="D", markersize=3.4,
-                    markerfacecolor="white", markeredgecolor=col,
-                    markeredgewidth=0.9, zorder=3)
+            ax.plot([e], [i + off], marker="D", markersize=3.4, markerfacecolor="white",
+                    markeredgecolor=col, markeredgewidth=0.9, zorder=3)
     ax.set_xticks(ticks)
     ax.set_xticklabels([("%g" % t) for t in ticks], fontsize=FS_TICK)
     ax.set_yticks([])
@@ -124,51 +90,27 @@ def draw_axis(keys, y_first, logscale, null, xlim, ticks, minor_step, xlabel):
         ax.spines[s].set_visible(False)
     ax.spines["bottom"].set_linewidth(0.7)
     ax.tick_params(axis="x", length=3.2, width=0.8, pad=1.0)
-    # Minor ticks come from figures/forest_ticks.py - one implementation for
-    # every forest axis in this directory; see that module for why
-    # matplotlib's own log minors are not usable here.
     minor_ticks(ax, minor_step, length=2.0, width=0.6)
-    ax.set_xlabel(xlabel, fontsize=FS_XLAB, fontweight="bold",
-                  labelpad=2.0, linespacing=1.25)
-
-
-def exp_ci(e, lo, hi):
-    return f"{math.exp(e):.2f} ({math.exp(lo):.2f}, {math.exp(hi):.2f})"
-
-
-def sd_ci(e, lo, hi):
-    return f"{e:.2f} ({lo:.2f}, {hi:.2f})"
+    ax.set_xlabel(xlabel, fontsize=FS_XLAB, fontweight="bold", labelpad=2.0, linespacing=1.25)
 
 
 # --- calcification: an SD change, linear axis ---------------------------------
 for i, (key, label, n) in enumerate(SD_BLOCK):
-    text_block(key, label, n, Y_CAC - i * ROW_SPACING, sd_ci)
+    text_block(key, label, n, Y_CAC - i * ROW_SPACING,
+               lambda e, lo, hi: f"{e:.2f} ({lo:.2f}, {hi:.2f})")
 draw_axis([k for k, *_ in SD_BLOCK], Y_CAC, False, 0.0, (-0.22, 0.80), [0, 0.4, 0.8], 0.1,
           "SD change per one unit lower\nNLRP3 activity score")
 
-# --- plaque burden: proportional odds ratios, log axis -------------------------------------
+# --- plaque burden: proportional odds ratios, log axis ------------------------
 for i, (key, label, n) in enumerate(OR_BLOCK):
-    text_block(key, label, n, Y_SIS - i * ROW_SPACING, exp_ci)
+    text_block(key, label, n, Y_SIS - i * ROW_SPACING,
+               lambda e, lo, hi: f"{math.exp(e):.2f} ({math.exp(lo):.2f}, {math.exp(hi):.2f})")
 draw_axis([k for k, *_ in OR_BLOCK], Y_SIS, True, 1.0, (0.78, 7.0), [1, 2, 4, 6], 0.5,
           "Proportional odds ratio per one unit lower\nNLRP3 activity score")
 
-# --- legend ------------------------------------------------------------------
-LY, HALF = 0.050, 0.020
-
-
-def legend_entry(x, colour, text):
-    fig.add_artist(plt.Line2D([x - HALF, x + HALF], [LY, LY], color=colour,
-                              linewidth=1.0, transform=fig.transFigure))
-    fig.add_artist(plt.Line2D([x], [LY], marker="D", markersize=3.4, color=colour,
-                              markerfacecolor="white", markeredgewidth=0.9,
-                              linestyle="none", transform=fig.transFigure))
-    fig.text(x + HALF + 0.010, LY, text, fontsize=FS_SMALL, va="center")
-
-
-# Anchors chosen so the two entries sit as a pair, ~6 mm apart, centred
-# under the forest axes.
-legend_entry(0.421, IVW_C, "IVW")
-legend_entry(0.552, WM_C, "Weighted Median")
+# --- legend: the pair centred under the forest axes ---------------------------
+LEGEND = dict(half=0.020, pad=0.010, lw=1.0, ms=3.4, mew=0.9, fontsize=FS_SMALL)
+legend_entry(fig, 0.421, 0.050, IVW_C, "IVW", **LEGEND)
+legend_entry(fig, 0.552, 0.050, WM_C, "Weighted Median", **LEGEND)
 
 fig.savefig(OUT_DIR / "Fig3B_imaging_forest.pdf", dpi=600, facecolor="white")
-print(f"wrote {OUT_DIR / 'Fig3B_imaging_forest.pdf'}  ({FIG_W_MM:.0f} x {FIG_H_MM:.0f} mm)")

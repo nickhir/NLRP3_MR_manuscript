@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # Build the supplementary-table workbook.
-# Run: Rscript tables/build_supplementary_tables.R [template.xlsx] [output.xlsx] [results_dir]
+# Run from the project root: Rscript tables/build_supplementary_tables.R
 #
 # One flat table per sheet, header in row 1, no panels and no notes blocks.
 # A "Contents" sheet is written first. The manual source tables are carried across
@@ -22,22 +22,12 @@ suppressPackageStartupMessages({
 
 
 ## ---- where everything lives ---------------------------------------------------
-script <- sub("^--file=", "", grep("^--file=", commandArgs(), value = TRUE)[1])
-root <- dirname(dirname(normalizePath(script, mustWork = TRUE)))
-args <- commandArgs(trailingOnly = TRUE)
-template <- normalizePath(if (length(args) >= 1L) args[1] else
-    file.path(root, "SuppTables_new.xlsx"), mustWork = TRUE)
-output <- if (length(args) >= 2L) args[2] else file.path(root, "SuppTables_completed_DRAFT.xlsx")
-output <- file.path(normalizePath(dirname(output), mustWork = TRUE), basename(output))
-results <- normalizePath(if (length(args) >= 3L) args[3] else file.path(root, "results"),
-                         mustWork = TRUE)
+template <- here::here("SuppTables_new.xlsx") # the hand-curated source tables
+output <- here::here("SuppTables_completed_DRAFT.xlsx")
+results <- here::here("results")
 
-
-## ---- reading results ----------------------------------------------------------
 read_result <- function(path) {
-    file <- file.path(results, path)
-    if (!file.exists(file)) stop("Required result missing: ", file)
-    read.delim(file, check.names = FALSE, stringsAsFactors = FALSE,
+    read.delim(file.path(results, path), check.names = FALSE, stringsAsFactors = FALSE,
                na.strings = c("", "NA"), quote = "\"", comment.char = "")
 }
 read_result_rds <- function(path) readRDS(file.path(results, path))
@@ -58,9 +48,6 @@ method_label <- function(x) {
     x <- sub("^IVW \\(LD-corrected\\)$", "IVW", x)
     sub("^Weighted Median$", "Weighted median", x)
 }
-
-# Pull a column that only some of the inputs carry.
-optional <- function(d, name) if (name %in% names(d)) d[[name]] else NA_real_
 
 P_FMT <- "0.00E+00"
 INT_FMT <- "#,##0"
@@ -337,23 +324,13 @@ add("ST09",
 
 
 ## ---- ST10  rare-variant burden ----------------------------------------------------
-BURDEN <- "rare_variant_burden/gene_burden.tsv"
-st10 <- if (file.exists(file.path(results, BURDEN))) {
-    burden <- read_result(BURDEN)
-    data.frame(Gene = burden$gene, `# pLOF carriers` = burden$n_carriers,
-               `# non-carriers` = burden$n_noncarriers, Biomarker = burden$trait,
-               Beta = burden$beta, SE = burden$se,
-               `95% CI` = ci(burden$ci_lower, burden$ci_upper), `P value` = burden$p,
-               check.names = FALSE, stringsAsFactors = FALSE)
-} else {
-    message("NOTE: ", BURDEN, " not found - ST10 written as a header with a ",
-            "'not yet available' row. No values are invented.")
-    data.frame(Gene = "Not yet available", `# pLOF carriers` = NA_integer_,
-               `# non-carriers` = NA_integer_,
-               Biomarker = "SAIGE-GENE+ burden export pending", Beta = NA_real_,
-               SE = NA_real_, `95% CI` = NA_character_, `P value` = NA_real_,
-               check.names = FALSE, stringsAsFactors = FALSE)
-}
+# The SAIGE-GENE+ burden export is not in results/, so the sheet is its header
+# and a "not yet available" row.
+st10 <- data.frame(Gene = "Not yet available", `# pLOF carriers` = NA_integer_,
+                   `# non-carriers` = NA_integer_,
+                   Biomarker = "SAIGE-GENE+ burden export pending", Beta = NA_real_,
+                   SE = NA_real_, `95% CI` = NA_character_, `P value` = NA_real_,
+                   check.names = FALSE, stringsAsFactors = FALSE)
 add("ST10",
     "Rare-variant predicted loss-of-function burden associations for NLRP3 and its neighbouring genes.",
     st10, c(`# pLOF carriers` = INT_FMT, `# non-carriers` = INT_FMT, `P value` = P_FMT))
@@ -426,15 +403,15 @@ add("ST13",
 sweep <- read_result("11_mr_sensitivity/r2_sweep.tsv")
 single_variant <- read_result("11_mr_sensitivity/single_variant.tsv")
 
-# One block per analysis, all on the same columns. The single-variant Wald ratio
-# has no Egger intercept, so optional() leaves those two columns empty for it.
+# One block per analysis, all on the same columns. The Egger intercept belongs
+# to the IVW rows; the single-variant Wald ratio has none.
 sensitivity_block <- function(analysis, d) data.frame(
     Analysis = analysis, Method = method_label(d$method),
     `# of Instruments` = d$n_snps,
     OR = exp(d$estimate), `95% CI (OR)` = ci(exp(d$ci_lower), exp(d$ci_upper)),
     `SE (log OR)` = d$se, `P value` = d$p,
-    `Egger intercept` = ifelse(d$method == "IVW", optional(d, "egger_intercept"), NA),
-    `Egger intercept P` = ifelse(d$method == "IVW", optional(d, "egger_intercept_p"), NA),
+    `Egger intercept` = ifelse(d$method == "IVW", d$egger_intercept, NA),
+    `Egger intercept P` = ifelse(d$method == "IVW", d$egger_intercept_p, NA),
     check.names = FALSE, stringsAsFactors = FALSE)
 
 add("ST14",
@@ -485,8 +462,7 @@ column_width <- function(name, values) {
     } else {
         12
     }
-    width <- min(46, max(11, nchar(name) + 2, longest_value))
-    if (is.finite(width)) width else 14
+    min(46, max(11, nchar(name) + 2, longest_value))
 }
 
 wb <- createWorkbook()
@@ -523,27 +499,17 @@ write_sheet <- function(id, x, fmt = character(), widths = NULL) {
 write_sheet("Contents", contents, widths = c(10, 120))
 for (id in ids) write_sheet(id, sheets[[id]]$table, sheets[[id]]$fmt)
 
-tmp <- tempfile("supp_", tmpdir = dirname(output), fileext = ".xlsx")
-saveWorkbook(wb, tmp, overwrite = TRUE)
+saveWorkbook(wb, output, overwrite = TRUE)
 
 # openxlsx 4.2.8 writes a relationship to xl/drawings/drawingN.xml for every sheet
 # even when no drawing exists, which makes the file unreadable by openpyxl/pandas.
-# Strip those dangling relationships.
-strip_drawing_rels <- function(path) {
-    dir <- tempfile("xlsxfix_"); dir.create(dir)
-    on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-    utils::unzip(path, exdir = dir)
-    for (f in list.files(file.path(dir, "xl", "worksheets", "_rels"), full.names = TRUE)) {
-        txt <- paste(readLines(f, warn = FALSE), collapse = "\n")
-        writeLines(gsub('<Relationship[^>]*Target="\\.\\./drawings/[^"]*"[^>]*/>', "", txt), f)
-    }
-    old <- setwd(dir); on.exit(setwd(old), add = TRUE)
-    unlink(path)
-    utils::zip(path, list.files(".", recursive = TRUE, all.files = TRUE), flags = "-qX")
+# Strip those dangling relationships and re-zip.
+dir <- tempfile("xlsxfix_")
+utils::unzip(output, exdir = dir)
+for (f in list.files(file.path(dir, "xl", "worksheets", "_rels"), full.names = TRUE)) {
+    txt <- paste(readLines(f, warn = FALSE), collapse = "\n")
+    writeLines(gsub('<Relationship[^>]*Target="\\.\\./drawings/[^"]*"[^>]*/>', "", txt), f)
 }
-strip_drawing_rels(tmp)
-
-invisible(file.rename(tmp, output))
-message(sprintf("Wrote %s\n  %d sheets, %d data rows, no synthetic values.",
-                output, length(sheets) + 1L,
-                sum(vapply(sheets, function(s) nrow(s$table), integer(1)))))
+unlink(output)
+setwd(dir)
+utils::zip(output, list.files(".", recursive = TRUE, all.files = TRUE), flags = "-qX")
